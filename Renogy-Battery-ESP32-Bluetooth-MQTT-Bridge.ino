@@ -1,8 +1,6 @@
 /**
- * A BLE client example that is rich in capabilities.
- * There is a lot new capabilities implemented.
- * author unknown
- * updated by chegewara
+ * A BLE bridge from Renogy battery to MQTT
+ * based on excellence work from: https://github.com/chadj/renogy-smart-battery
  */
 
 #include "BLEDevice.h"
