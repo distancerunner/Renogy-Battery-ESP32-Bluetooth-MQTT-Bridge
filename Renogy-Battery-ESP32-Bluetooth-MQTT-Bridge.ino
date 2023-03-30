@@ -6,6 +6,8 @@
  */
 
 #include "BLEDevice.h"
+#include "config.h"
+#include "wifiBridge.h"
 
 #define RENOGYHEADERSIZE 3 // drop first 3 bytes of response
 
