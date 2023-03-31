@@ -15,16 +15,17 @@
 static BLEUUID serviceWriteUUID("0000ffd0-0000-1000-8000-00805f9b34fb"); // WRITE
 static BLEUUID serviceReadUUID("0000fff0-0000-1000-8000-00805f9b34fb"); // READ
 
-static BLEUUID    WRITE_UUID("0000ffd1-0000-1000-8000-00805f9b34fb");
-static BLEUUID    NOTIFY_UUID("0000fff1-0000-1000-8000-00805f9b34fb");
+static BLEUUID WRITE_UUID("0000ffd1-0000-1000-8000-00805f9b34fb");
+static BLEUUID NOTIFY_UUID("0000fff1-0000-1000-8000-00805f9b34fb");
 
 static String callData = "getLevels";
-static String responseData = "";
-static String RENOGYcurrent="";
-static String RENOGYvoltage="";
-static String RENOGYchargeLevel="";
-static String RENOGYcapacity="";
-static String RENOGYtemperature="";
+String responseData = "";
+String RENOGYcurrent="";
+String RENOGYvoltage="";
+String RENOGYchargeLevel="";
+String RENOGYcapacity="";
+String RENOGYtemperature="";
+uint8_t firstRun = 1;
 
 static boolean doConnect = false;
 static boolean connected = false;
@@ -36,14 +37,8 @@ static BLEAdvertisedDevice* myDevice;
 
 static String hexData;
 
-typedef struct __attribute__ ((packed)) {
-  uint16_t field1;       // 2 bytes
-  uint16_t field2;       // 2 bytes
-  uint16_t field3;       // 2 bytes
-  uint16_t field4;       // 2 bytes
-} bt_command_t;
 
-bt_command_t command;
+int mqtt_server_count = sizeof(mqtt_server) / sizeof(mqtt_server[0]);
 //Address of the peripheral device. Address will be found during scanning...
 // static BLE pServerAddress;
 
@@ -138,6 +133,7 @@ static void notifyCallback(
     }
     Serial.println(" "); 
     Serial.println("END notifyCallback ########");
+    sendMqttData();
 }
 
 class MyClientCallback : public BLEClientCallbacks {
@@ -256,7 +252,21 @@ void setup() {
   Serial.println("Starting Arduino BLE Client application...");
   BLEDevice::init("");
 
-  setupDeviceAnConnect();
+  if (startWiFiMulti()) {
+    Serial.println("Wifi connected make next step...");
+    Serial.println();  
+
+    setClock();
+  if ( startMQTT()) {
+    setupDeviceAnConnect();
+    return;
+  }
+
+  Serial.println("Wait 30s and than restart...");
+  delay(30000);
+  ESP.restart();
+}
+
 } // End of setup.
 
 
@@ -308,7 +318,6 @@ void loop() {
         pRemoteWriteCharacteristic->writeValue(commands[2], sizeof(commands[2]));
       }
 
-      
       timerTicker2 = millis();
     }
   }else if(doScan){
@@ -318,3 +327,43 @@ void loop() {
   // delay(10000); // Delay a second between loops.
   // ESP.restart();
 } // End of loop
+
+void sendMqttData() {
+  Serial.print("Send MQTT data...");
+
+  // connected = false;
+  if ( checkWiFi()) {
+    Serial.print("Wifi connection succesful.");
+    // in case mqtt connection is lost, restart device
+    if (!espMQTT.isConnected()) {
+      delay(10000);
+      // after 10s, check if wifi is available
+      if ( checkWiFi()) {
+        // try to reconnect to mqtt
+        if (!startMQTT()) {
+          Serial.print("MQTT Connection lost, restart system");
+          ESP.restart(); 
+        }
+
+      } else {
+        Serial.print("MQTT Connection lost, restart system");
+        ESP.restart();          
+      }
+    }
+    // connected = true;
+    Serial.println();
+
+    // mqttSend("/victron/sensor/watt", String(counter));
+    mqttSend("/renogy/sensor/renogy_current", String(RENOGYcurrent));
+    mqttSend("/renogy/sensor/renogy_voltage", String(RENOGYvoltage));
+    mqttSend("/renogy/sensor/renogy_chargelevel", String(RENOGYchargeLevel));
+    mqttSend("/renogy/sensor/renogy_capacity", String(RENOGYcapacity));
+    mqttSend("/renogy/sensor/renogy_temperature", String(RENOGYtemperature));
+
+    // mqttSend("/victron/sensor/ve_state", VEStatus[VE_state].value);
+    // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value + (String((int)tickslower) + "/" + String((int)tickfaster)));
+    // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value);
+    mqttSend("/renogy/sensor/ve_last_update", getClockTime());
+    mqttSend("/renogy/sensor/ve_wifi_ssid", WiFi.SSID());
+  }
+}
