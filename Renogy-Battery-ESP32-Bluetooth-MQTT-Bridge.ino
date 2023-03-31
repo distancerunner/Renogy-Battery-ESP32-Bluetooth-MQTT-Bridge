@@ -30,12 +30,10 @@ uint8_t firstRun = 1;
 static boolean doConnect = false;
 static boolean connected = false;
 static boolean doScan = false;
-static BLERemoteCharacteristic* pRemoteCharacteristic;
+
 static BLERemoteCharacteristic* pRemoteWriteCharacteristic;
 static BLERemoteCharacteristic* pRemoteNotifyCharacteristic;
 static BLEAdvertisedDevice* myDevice;
-
-static String hexData;
 
 
 int mqtt_server_count = sizeof(mqtt_server) / sizeof(mqtt_server[0]);
@@ -103,6 +101,7 @@ static void notifyCallback(
       Serial.println(RENOGYtemperature);
 
       // callData="getCellVolts"; // exclude cellVolts for now
+      // callData="connectToAnotherHost";
       callData="getLevels";
     }
 
@@ -122,7 +121,6 @@ static void notifyCallback(
 
       callData="getLevels";
     }
-    // hexData = "";
     /* pData Debug... */
     Serial.println("Hex data received:"); 
     for (int i=1; i<=length; i++){
@@ -146,11 +144,15 @@ class MyClientCallback : public BLEClientCallbacks {
   }
 };
 
+// bool disconnectToServer() {
+//   BLEDevice::
+// }
+
 bool connectToServer() {
     Serial.print("Forming a connection to ");
     Serial.println(myDevice->getAddress().toString().c_str());
     
-    BLEClient*  pClient  = BLEDevice::createClient();
+    BLEClient* pClient = BLEDevice::createClient();
     Serial.println(" - Created client");
 
     pClient->setClientCallbacks(new MyClientCallback());
@@ -178,6 +180,7 @@ bool connectToServer() {
       return false;
     }
     Serial.println(" - Found our pRemoteReadService");
+
     // Obtain a reference to the characteristic in the service of the remote BLE server.
     pRemoteWriteCharacteristic = pRemoteWriteService->getCharacteristic(WRITE_UUID);
     if (pRemoteWriteCharacteristic == nullptr) {
@@ -318,6 +321,15 @@ void loop() {
         pRemoteWriteCharacteristic->writeValue(commands[2], sizeof(commands[2]));
       }
 
+      if (callData == "connectToAnotherHost") {
+        BLEDevice::deinit(false);
+        responseData = "";
+        callData = "";
+        Serial.print("rennecto to another host: ");
+        setupDeviceAnConnect();
+        // pRemoteWriteCharacteristic->writeValue(commands[2], sizeof(commands[2]));
+      }
+
       timerTicker2 = millis();
     }
   }else if(doScan){
@@ -363,7 +375,7 @@ void sendMqttData() {
     // mqttSend("/victron/sensor/ve_state", VEStatus[VE_state].value);
     // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value + (String((int)tickslower) + "/" + String((int)tickfaster)));
     // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value);
-    mqttSend("/renogy/sensor/ve_last_update", getClockTime());
-    mqttSend("/renogy/sensor/ve_wifi_ssid", WiFi.SSID());
+    mqttSend("/renogy/sensor/renogy_last_update", getClockTime());
+    mqttSend("/renogy/sensor/renogy_wifi_ssid", WiFi.SSID());
   }
 }

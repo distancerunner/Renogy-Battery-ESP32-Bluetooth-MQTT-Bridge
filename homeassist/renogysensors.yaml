@@ -1,0 +1,50 @@
+- name: "Renogy Sensor Current"
+  unique_id: "RenogySensorCurrent"
+  state_topic: "/renogy/sensor/renogy_current"
+  value_template: "{{ value | float }}"
+  state_class: measurement
+  unit_of_measurement: "A"
+
+- name: "Renogy Sensor Voltage"
+  unique_id: "RenogySensorVoltage"
+  state_topic: "/renogy/sensor/renogy_voltage"
+  value_template: "{{ value | float }}"
+  unit_of_measurement: "V"
+  state_class: measurement
+  device_class: "VOLTAGE"
+
+- name: "Renogy Sensor Charge Level"
+  unique_id: "RenogySensorChargeLevel"
+  state_topic: "/renogy/sensor/renogy_chargelevel"
+  value_template: "{{ value | float }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+  device_class: "BATTERY"
+
+- name: "Renogy Sensor Capacity"
+  unique_id: "RenogySensorCapacity"
+  state_topic: "/renogy/sensor/renogy_capacity"
+  value_template: "{{ value }}"
+  unit_of_measurement: "Ah"
+  state_class: measurement
+  device_class: "BATTERY"
+
+- name: "Renogy Sensor Temperature"
+  unique_id: "RenogySensorTemperature"
+  state_topic: "/renogy/sensor/renogy_temperature"
+  value_template: "{{ value | float }}"
+  unit_of_measurement: "°C"
+  state_class: measurement
+  device_class: "TEMPERATURE"
+
+- name: "Victron Last Update"
+  unique_id: "VictronLasteUpdateTimestamp"
+  state_topic: "/victron/sensor/renogy_last_update"
+  value_template: "{{ value }}"
+
+- name: "Victron Wifi ssid"
+  unique_id: "VictronWifiSSID"
+  state_topic: "/victron/sensor/renogy_wifi_ssid"
+  value_template: "{{ value }}"
+
+
