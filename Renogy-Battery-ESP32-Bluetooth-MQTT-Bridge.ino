@@ -107,6 +107,24 @@ static void notifyCallback(
       Serial.println("Temperature");
       Serial.println(RENOGYtemperature);
 
+      // callData="getCellVolts"; // exclude cellVolts for now
+      callData="getLevels";
+    }
+
+    if(responseData=="getCellVolts") {
+      // uint8_t numberSensors = ((int16_t)pData[RENOGYHEADERSIZE+0] << 8) | pData[RENOGYHEADERSIZE+1];
+
+      Serial.println("Get Cell Volts ########");
+      // int16_t averageTemp = 0;
+      // for (int i=1; i<=numberSensors; i++){
+      //   int16_t valueSigned = ((int16_t)pData[RENOGYHEADERSIZE+(2*i)] << 8) | pData[RENOGYHEADERSIZE+1+(2*i)];
+      //   averageTemp += valueSigned;
+      // }
+
+      // RENOGYtemperature = String((float)(averageTemp/numberSensors) * 0.1);
+      Serial.println("getCellVolts");
+      // Serial.println(RENOGYtemperature);
+
       callData="getLevels";
     }
     // hexData = "";
@@ -216,11 +234,10 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   } // onResult
 }; // MyAdvertisedDeviceCallbacks
 
-
-void setup() {
-  Serial.begin(19200);
-  Serial.println("Starting Arduino BLE Client application...");
-  BLEDevice::init("");
+void setupDeviceAnConnect() {
+  doConnect = false;
+  connected = false;
+  doScan = false;
 
   // Retrieve a Scanner and set the callback we want to use to be informed when we
   // have detected a new device.  Specify that we want active scanning and start the
@@ -231,6 +248,15 @@ void setup() {
   pBLEScan->setWindow(449);
   pBLEScan->setActiveScan(true);
   pBLEScan->start(5, false);
+}
+
+
+void setup() {
+  Serial.begin(19200);
+  Serial.println("Starting Arduino BLE Client application...");
+  BLEDevice::init("");
+
+  setupDeviceAnConnect();
 } // End of setup.
 
 
@@ -266,6 +292,13 @@ void loop() {
         callData = "";
         Serial.print("Request Level and Voltage Information: ");
         pRemoteWriteCharacteristic->writeValue(commands[0], sizeof(commands[0]));
+      }
+
+      if (callData == "getCellVolts") {
+        responseData = "getCellVolts";
+        callData = "";
+        Serial.print("Request CellVolts Information: ");
+        pRemoteWriteCharacteristic->writeValue(commands[1], sizeof(commands[1]));
       }
 
       if (callData == "getTemperatures") {
