@@ -37,14 +37,14 @@
   state_class: measurement
   device_class: "TEMPERATURE"
 
-- name: "Victron Last Update"
-  unique_id: "VictronLasteUpdateTimestamp"
-  state_topic: "/victron/sensor/renogy_last_update"
+- name: "Renogy Last Update"
+  unique_id: "RenogyLasteUpdateTimestamp"
+  state_topic: "/renogy/sensor/renogy_last_update"
   value_template: "{{ value }}"
 
-- name: "Victron Wifi ssid"
-  unique_id: "VictronWifiSSID"
-  state_topic: "/victron/sensor/renogy_wifi_ssid"
+- name: "Renogy Wifi ssid"
+  unique_id: "RenogyWifiSSID"
+  state_topic: "/renogy/sensor/renogy_wifi_ssid"
   value_template: "{{ value }}"
 
 
