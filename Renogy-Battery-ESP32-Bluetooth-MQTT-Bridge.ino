@@ -18,7 +18,7 @@ static BLEUUID serviceReadUUID("0000fff0-0000-1000-8000-00805f9b34fb"); // READ
 static BLEUUID WRITE_UUID("0000ffd1-0000-1000-8000-00805f9b34fb");
 static BLEUUID NOTIFY_UUID("0000fff1-0000-1000-8000-00805f9b34fb");
 
-static String callData = "getLevels";
+String callData = "getLevels";
 String responseData = "";
 String RENOGYcurrent="";
 String RENOGYvoltage="";
@@ -31,9 +31,15 @@ static boolean doConnect = false;
 static boolean connected = false;
 static boolean doScan = false;
 
-static BLERemoteCharacteristic* pRemoteWriteCharacteristic;
-static BLERemoteCharacteristic* pRemoteNotifyCharacteristic;
-static BLEAdvertisedDevice* myDevice;
+
+BLERemoteService* pRemoteWriteService;
+BLERemoteService* pRemoteReadService;
+BLERemoteCharacteristic* pRemoteWriteCharacteristic;
+BLERemoteCharacteristic* pRemoteNotifyCharacteristic;
+BLEAdvertisedDevice* myDevice;
+
+BLEClient* pClient;
+BLEScan* pBLEScan;
 
 #define DEVICEAMOUNT 2
 static const char* deviceAddresses[DEVICEAMOUNT] = {
@@ -107,8 +113,8 @@ static void notifyCallback(
       Serial.println(RENOGYtemperature);
 
       // callData="getCellVolts"; // exclude cellVolts for now
-      // callData="connectToAnotherHost";
-      callData="getLevels";
+      callData="connectToAnotherHost";
+      // callData="getLevels";
     }
 
     if(responseData=="getCellVolts") {
@@ -137,6 +143,7 @@ static void notifyCallback(
     }
     Serial.println(" "); 
     Serial.println("END notifyCallback ########");
+    delay(5);
     sendMqttData();
 }
 
@@ -155,21 +162,22 @@ class MyClientCallback : public BLEClientCallbacks {
 // }
 
 bool connectToServer() {
+    callData = "getLevels";
     Serial.print("Forming a connection to ");
     Serial.println(myDevice->getAddress().toString().c_str());
     
-    BLEClient* pClient = BLEDevice::createClient();
+    pClient = BLEDevice::createClient();
     Serial.println(" - Created client");
-
+    delay(2000);
     pClient->setClientCallbacks(new MyClientCallback());
-
+    delay(2000);
     // Connect to the remove BLE Server.
     pClient->connect(myDevice);  // if you pass BLEAdvertisedDevice instead of address, it will be recognized type of peer device address (public or private)
     Serial.println(" - Connected to server");
     // pClient->setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
   
     // Obtain a reference to the service we are after in the remote BLE server.
-    BLERemoteService* pRemoteWriteService = pClient->getService(serviceWriteUUID);
+    pRemoteWriteService = pClient->getService(serviceWriteUUID);
     if (pRemoteWriteService == nullptr) {
       Serial.print("Failed to find our service UUID: ");
       Serial.println(serviceWriteUUID.toString().c_str());
@@ -177,8 +185,8 @@ bool connectToServer() {
       return false;
     }
     Serial.println(" - Found our pRemoteWriteService");
-
-    BLERemoteService* pRemoteReadService = pClient->getService(serviceReadUUID);
+    delay(500);
+    pRemoteReadService = pClient->getService(serviceReadUUID);
     if (pRemoteReadService == nullptr) {
       Serial.print("Failed to find our service UUID: ");
       Serial.println(serviceReadUUID.toString().c_str());
@@ -186,7 +194,7 @@ bool connectToServer() {
       return false;
     }
     Serial.println(" - Found our pRemoteReadService");
-
+    delay(500);
     // Obtain a reference to the characteristic in the service of the remote BLE server.
     pRemoteWriteCharacteristic = pRemoteWriteService->getCharacteristic(WRITE_UUID);
     if (pRemoteWriteCharacteristic == nullptr) {
@@ -196,7 +204,7 @@ bool connectToServer() {
       return false;
     }
     Serial.println(F(" - Found our Write characteristic"));
-
+    delay(500);
         // Obtain a reference to the characteristic in the service of the remote BLE server.
     pRemoteNotifyCharacteristic = pRemoteReadService->getCharacteristic(NOTIFY_UUID);
     if (pRemoteNotifyCharacteristic == nullptr) {
@@ -205,12 +213,15 @@ bool connectToServer() {
       pClient->disconnect();
       return false;
     }
-    Serial.println(F(" - Found our Notifyite characteristic"));    
+    Serial.println(F(" - Found our characteristic for notifications"));
 
+    delay(500);
     if(pRemoteNotifyCharacteristic->canNotify()) {
+      Serial.println("Subscribe to characteristic...");
       pRemoteNotifyCharacteristic->registerForNotify(notifyCallback);
     }
 
+    BLEDevice::getScan()->clearResults();
     connected = true;
     return true;
 }
@@ -229,6 +240,7 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     // We have found a device, let us now see if it contains the service we are looking for.
     if (strcmp(deviceAddresses[deviceAddressesNumber], advertisedDevice.getAddress().toString().c_str()) == 0) {
       Serial.println("BLE Advertised Device found with serviceWriteUUID");
+      delay(1000);
       Serial.println("");
       BLEDevice::getScan()->stop();
       myDevice = new BLEAdvertisedDevice(advertisedDevice);
@@ -239,15 +251,15 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   } // onResult
 }; // MyAdvertisedDeviceCallbacks
 
-void setupDeviceAnConnect() {
+void setupDeviceAndConnect() {
   doConnect = false;
   connected = false;
   doScan = false;
-
+  BLEDevice::init("");
   // Retrieve a Scanner and set the callback we want to use to be informed when we
   // have detected a new device.  Specify that we want active scanning and start the
   // scan to run for 5 seconds.
-  BLEScan* pBLEScan = BLEDevice::getScan();
+  pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setInterval(1349);
   pBLEScan->setWindow(449);
@@ -266,14 +278,15 @@ void setup() {
 
     setClock();
     if ( startMQTT()) {
-      BLEDevice::init("");
-      setupDeviceAnConnect();
+      setupDeviceAndConnect();
       return;
     }
 
   }
 
+  Serial.println("");
   Serial.println("Wait 30s and than restart...");
+  getClockTime();
   delay(30000);
   ESP.restart();
 } // End of setup.
@@ -281,6 +294,7 @@ void setup() {
 
 // This is the Arduino main loop function.
 void loop() {
+  static uint32_t timerTickerForWhatchDog = millis();
   static uint32_t timerTicker2 = millis();
   // If the flag "doConnect" is true then we have scanned for and found the desired
   // BLE Server with which we wish to connect.  Now we connect to it.  Once we are 
@@ -293,6 +307,14 @@ void loop() {
       Serial.println("We have failed to connect to the server; there is nothin more we will do.");
     }
     doConnect = false;
+  }
+
+  if (millis() > timerTickerForWhatchDog + 60000) {
+      Serial.println("");
+      Serial.println("Timeout exceeded, ready for reset in 30s...");
+      getClockTime();
+      delay(30000);
+      ESP.restart();
   }
 
   if (connected) {
@@ -309,36 +331,72 @@ void loop() {
       Serial.println("Send new characteristic value:");      
 
       if (callData == "getLevels") {
-        responseData = "getLevels";
-        callData = "";
-        Serial.print("Request Level and Voltage Information: ");
-        pRemoteWriteCharacteristic->writeValue(commands[0], sizeof(commands[0]));
+        if (checkWiFiConnection()) {
+          responseData = "getLevels";
+          callData = "";
+          Serial.print("Request Level and Voltage Information: ");
+          pRemoteWriteCharacteristic->writeValue(commands[0], sizeof(commands[0]));
+        }
       }
 
       if (callData == "getCellVolts") {
-        responseData = "getCellVolts";
-        callData = "";
-        Serial.print("Request CellVolts Information: ");
-        pRemoteWriteCharacteristic->writeValue(commands[1], sizeof(commands[1]));
+        if (checkWiFiConnection()) {
+          responseData = "getCellVolts";
+          callData = "";
+          Serial.print("Request CellVolts Information: ");
+          pRemoteWriteCharacteristic->writeValue(commands[1], sizeof(commands[1]));
+        }
       }
 
       if (callData == "getTemperatures") {
-        responseData = "getTemperatures";
-        callData = "";
-        Serial.print("Request Temperature Information: ");
-        pRemoteWriteCharacteristic->writeValue(commands[2], sizeof(commands[2]));
+        if (checkWiFiConnection()) { 
+          responseData = "getTemperatures";
+          callData = "";
+          Serial.print("Request Temperature Information: ");
+          pRemoteWriteCharacteristic->writeValue(commands[2], sizeof(commands[2]));
+        }
       }
 
       if (callData == "connectToAnotherHost") {
-        BLEDevice::deinit(false);
+        // if the last device was called, return to the first one
+        if ( deviceAddressesNumber >= (DEVICEAMOUNT-1)) {
+          deviceAddressesNumber=0;
+        } else {
+          deviceAddressesNumber++;
+        }
+
+        pClient->disconnect();
         responseData = "";
         callData = "";
-        Serial.print("rennecto to another host: ");
-        setupDeviceAnConnect();
-        // pRemoteWriteCharacteristic->writeValue(commands[2], sizeof(commands[2]));
+        Serial.println("re-connect to another host: ");
+        Serial.print(deviceAddressesNumber, DEC);
+        Serial.println("");
+        Serial.println("wait 2s till reconnect...");
+        BLEDevice::deinit(false);
+        delay(2000);
+        setupDeviceAndConnect();
+      }
+
+      if (callData == "connectToAnotherHost" && false) {
+        if ( deviceAddressesNumber <= (DEVICEAMOUNT-1)) {
+          deviceAddressesNumber++;
+          BLEDevice::deinit(false);
+          responseData = "";
+          callData = "";
+          Serial.println("re-connect to another host: ");
+          Serial.print(deviceAddressesNumber, DEC);
+          Serial.println("");
+          pClient->disconnect();
+          Serial.println("wait 2s till reconnect...");
+          delay(2000);
+          setupDeviceAndConnect();
+        } else {
+          callData == "getLevels";
+        }
       }
 
       timerTicker2 = millis();
+      timerTickerForWhatchDog = millis();
     }
   }else if(doScan){
     BLEDevice::getScan()->start(0);  // this is just example to start scan after disconnect, most likely there is better way to do it in arduino
@@ -348,9 +406,10 @@ void loop() {
   // ESP.restart();
 } // End of loop
 
-void sendMqttData() {
-  Serial.println("Send MQTT data...");
 
+// check for wifi and mqtt connection, true if connectes
+// restart device, if connection is gone
+boolean checkWiFiConnection() {
   // connected = false;
   if ( checkWiFi()) {
     Serial.println("Wifi connection still exist.");
@@ -363,25 +422,39 @@ void sendMqttData() {
       if (!startMQTT()) {
         Serial.println("MQTT Connection lost, restart system");
         ESP.restart(); 
+      } else {
+        return true;
+
       }
+
     }
+
   } else {
-    Serial.println("MQTT Connection lost, restart system");
-    ESP.restart();       
+    Serial.println("Wifi Connection lost, restart system");
+    ESP.restart();
+    return false;
   }
-    // connected = true;
-    Serial.println();
+}
 
-    // mqttSend("/victron/sensor/watt", String(counter));
-    mqttSend("/renogy/sensor/renogy_current", String(RENOGYcurrent));
-    mqttSend("/renogy/sensor/renogy_voltage", String(RENOGYvoltage));
-    mqttSend("/renogy/sensor/renogy_chargelevel", String(RENOGYchargeLevel));
-    mqttSend("/renogy/sensor/renogy_capacity", String(RENOGYcapacity));
-    mqttSend("/renogy/sensor/renogy_temperature", String(RENOGYtemperature));
+void sendMqttData() {
+  Serial.println("Send MQTT data...");
+  Serial.println(deviceAddresses[deviceAddressesNumber]);
+  // connected = true;
+  Serial.println();
 
-    // mqttSend("/victron/sensor/ve_state", VEStatus[VE_state].value);
-    // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value + (String((int)tickslower) + "/" + String((int)tickfaster)));
-    // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value);
-    mqttSend("/renogy/sensor/renogy_last_update", getClockTime());
-    mqttSend("/renogy/sensor/renogy_wifi_ssid", WiFi.SSID());
+  // mqttSend("/victron/sensor/watt", String(counter));
+  mqttSend("/renogy/sensor/renogy_current", String(RENOGYcurrent));
+  mqttSend("/renogy/sensor/renogy_voltage", String(RENOGYvoltage));
+  mqttSend("/renogy/sensor/renogy_chargelevel", String(RENOGYchargeLevel));
+  mqttSend("/renogy/sensor/renogy_capacity", String(RENOGYcapacity));
+  mqttSend("/renogy/sensor/renogy_temperature", String(RENOGYtemperature));
+
+  mqttSend("/renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
+  // mqttSend("/victron/sensor/ve_state", VEStatus[VE_state].value);
+  // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value + (String((int)tickslower) + "/" + String((int)tickfaster)));
+  // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value);
+  mqttSend("/renogy/sensor/renogy_last_update", getClockTime());
+  mqttSend("/renogy/sensor/renogy_wifi_ssid", WiFi.SSID());
+  Serial.println("Data was send, return...");
+  delay(500);
 }

@@ -54,6 +54,7 @@ void setClock() {
 
 boolean startWiFiMulti() {
   Serial.print("Number of ssid's" + String(ssid_count));
+  Serial.println("");
   // add all ssid's to WiFiMulti
   for (int i = 0; i < ssid_count; i++) {
     WiFiMultiElement.addAP(ssid[i], pw[i]);
@@ -61,12 +62,14 @@ boolean startWiFiMulti() {
 
   // try connecting 4 times, with an timeout between
   for (int i = 0; i < 5; i++) {
+    Serial.print("try to connect to wifi...");
+    Serial.println(i+1);
+    delay(1000*i);
+    
     if ((WiFiMultiElement.run() == WL_CONNECTED)) {
-      Serial.print("WiFi connected in round: ");
-      Serial.println(i+1);
+      Serial.print("WiFi connected!!!");
       return true;
     }
-    delay(1000*i);
   }
 
   Serial.print("WiFi could not be started");

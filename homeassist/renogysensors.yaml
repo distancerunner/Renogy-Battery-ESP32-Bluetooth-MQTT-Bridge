@@ -47,4 +47,9 @@
   state_topic: "/renogy/sensor/renogy_wifi_ssid"
   value_template: "{{ value }}"
 
+- name: "Renogy Battery Address"
+  unique_id: "RenogyBatteryAddress"
+  state_topic: "/renogy/sensor/renogy_adress"
+  value_template: "{{ value }}"
+
 
