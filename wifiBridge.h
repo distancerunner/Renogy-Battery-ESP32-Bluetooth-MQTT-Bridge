@@ -62,7 +62,8 @@ boolean startWiFiMulti() {
   // try connecting 4 times, with an timeout between
   for (int i = 0; i < 5; i++) {
     if ((WiFiMultiElement.run() == WL_CONNECTED)) {
-      Serial.println("WiFi connected in round:" + (i+1));
+      Serial.print("WiFi connected in round: ");
+      Serial.println(i+1);
       return true;
     }
     delay(1000*i);

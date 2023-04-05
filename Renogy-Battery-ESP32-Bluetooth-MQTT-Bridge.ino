@@ -35,6 +35,12 @@ static BLERemoteCharacteristic* pRemoteWriteCharacteristic;
 static BLERemoteCharacteristic* pRemoteNotifyCharacteristic;
 static BLEAdvertisedDevice* myDevice;
 
+#define DEVICEAMOUNT 2
+static const char* deviceAddresses[DEVICEAMOUNT] = {
+  "60:98:66:ed:cb:8b",
+  "60:98:66:f9:3a:0f"
+};
+uint8_t deviceAddressesNumber=0;
 
 int mqtt_server_count = sizeof(mqtt_server) / sizeof(mqtt_server[0]);
 //Address of the peripheral device. Address will be found during scanning...
@@ -221,7 +227,7 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     Serial.println(advertisedDevice.toString().c_str());
 
     // We have found a device, let us now see if it contains the service we are looking for.
-    if (strcmp("60:98:66:f9:3a:0f", advertisedDevice.getAddress().toString().c_str()) == 0) {
+    if (strcmp(deviceAddresses[deviceAddressesNumber], advertisedDevice.getAddress().toString().c_str()) == 0) {
       Serial.println("BLE Advertised Device found with serviceWriteUUID");
       Serial.println("");
       BLEDevice::getScan()->stop();
@@ -253,23 +259,23 @@ void setupDeviceAnConnect() {
 void setup() {
   Serial.begin(19200);
   Serial.println("Starting Arduino BLE Client application...");
-  BLEDevice::init("");
 
   if (startWiFiMulti()) {
     Serial.println("Wifi connected make next step...");
     Serial.println();  
 
     setClock();
-  if ( startMQTT()) {
-    setupDeviceAnConnect();
-    return;
+    if ( startMQTT()) {
+      BLEDevice::init("");
+      setupDeviceAnConnect();
+      return;
+    }
+
   }
 
   Serial.println("Wait 30s and than restart...");
   delay(30000);
   ESP.restart();
-}
-
 } // End of setup.
 
 
@@ -290,6 +296,8 @@ void loop() {
   }
 
   if (connected) {
+    espUpdater();
+
     if (millis() > timerTicker2 + 10000) {
       // If we are connected to a peer BLE Server, update the characteristic
       byte commands[3][8] = {
@@ -341,27 +349,26 @@ void loop() {
 } // End of loop
 
 void sendMqttData() {
-  Serial.print("Send MQTT data...");
+  Serial.println("Send MQTT data...");
 
   // connected = false;
   if ( checkWiFi()) {
-    Serial.print("Wifi connection succesful.");
+    Serial.println("Wifi connection still exist.");
     // in case mqtt connection is lost, restart device
     if (!espMQTT.isConnected()) {
       delay(10000);
       // after 10s, check if wifi is available
-      if ( checkWiFi()) {
-        // try to reconnect to mqtt
-        if (!startMQTT()) {
-          Serial.print("MQTT Connection lost, restart system");
-          ESP.restart(); 
-        }
-
-      } else {
-        Serial.print("MQTT Connection lost, restart system");
-        ESP.restart();          
+      // if ( checkWiFi()) {
+      // try to reconnect to mqtt
+      if (!startMQTT()) {
+        Serial.println("MQTT Connection lost, restart system");
+        ESP.restart(); 
       }
     }
+  } else {
+    Serial.println("MQTT Connection lost, restart system");
+    ESP.restart();       
+  }
     // connected = true;
     Serial.println();
 
@@ -377,5 +384,4 @@ void sendMqttData() {
     // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value);
     mqttSend("/renogy/sensor/renogy_last_update", getClockTime());
     mqttSend("/renogy/sensor/renogy_wifi_ssid", WiFi.SSID());
-  }
 }
