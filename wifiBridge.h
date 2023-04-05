@@ -23,12 +23,12 @@ String getClockTime()
     return "No Time set";
   }
   Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
-  Serial.print("Hour: ");
-  Serial.println(&timeinfo, "%H");
-  Serial.print("Minute: ");
-  Serial.println(&timeinfo, "%M");
-  Serial.print("Second: ");
-  Serial.println(&timeinfo, "%S");
+  // Serial.print("Hour: ");
+  // Serial.println(&timeinfo, "%H");
+  // Serial.print("Minute: ");
+  // Serial.println(&timeinfo, "%M");
+  // Serial.print("Second: ");
+  // Serial.println(&timeinfo, "%S");
 
   return String(asctime(&timeinfo));
 }
@@ -65,7 +65,7 @@ boolean startWiFiMulti() {
     Serial.print("try to connect to wifi...");
     Serial.println(i+1);
     delay(1000*i);
-    
+
     if ((WiFiMultiElement.run() == WL_CONNECTED)) {
       Serial.print("WiFi connected!!!");
       return true;

@@ -25,6 +25,8 @@ String RENOGYvoltage="";
 String RENOGYchargeLevel="";
 String RENOGYcapacity="";
 String RENOGYtemperature="";
+String wifiSSIDValue="noSSID";
+String actualTimeStamp="00:00:00";
 uint8_t firstRun = 1;
 
 static boolean doConnect = false;
@@ -34,8 +36,8 @@ static boolean doScan = false;
 
 BLERemoteService* pRemoteWriteService;
 BLERemoteService* pRemoteReadService;
-BLERemoteCharacteristic* pRemoteWriteCharacteristic;
-BLERemoteCharacteristic* pRemoteNotifyCharacteristic;
+static BLERemoteCharacteristic* pRemoteWriteCharacteristic;
+static BLERemoteCharacteristic* pRemoteNotifyCharacteristic;
 BLEAdvertisedDevice* myDevice;
 
 BLEClient* pClient;
@@ -278,6 +280,7 @@ void setup() {
 
     setClock();
     if ( startMQTT()) {
+      wifiSSIDValue = WiFi.SSID();
       setupDeviceAndConnect();
       return;
     }
@@ -310,6 +313,7 @@ void loop() {
   }
 
   if (millis() > timerTickerForWhatchDog + 60000) {
+      // force a restart, if there is a problem somewhere, while we dont sent data after 60s
       Serial.println("");
       Serial.println("Timeout exceeded, ready for reset in 30s...");
       getClockTime();
@@ -330,6 +334,7 @@ void loop() {
       // String newValue = "Time since boot: " + String(millis()/1000);
       Serial.println("Send new characteristic value:");      
 
+      actualTimeStamp = getClockTime();
       if (callData == "getLevels") {
         if (checkWiFiConnection()) {
           responseData = "getLevels";
@@ -443,6 +448,7 @@ void sendMqttData() {
   Serial.println();
 
   // mqttSend("/victron/sensor/watt", String(counter));
+  mqttSend("/renogy/sensor/renogy_last_update", actualTimeStamp);
   mqttSend("/renogy/sensor/renogy_current", String(RENOGYcurrent));
   mqttSend("/renogy/sensor/renogy_voltage", String(RENOGYvoltage));
   mqttSend("/renogy/sensor/renogy_chargelevel", String(RENOGYchargeLevel));
@@ -450,11 +456,10 @@ void sendMqttData() {
   mqttSend("/renogy/sensor/renogy_temperature", String(RENOGYtemperature));
 
   mqttSend("/renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
+  mqttSend("/renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
+  Serial.println("Data was send, return...");
+  delay(500);
   // mqttSend("/victron/sensor/ve_state", VEStatus[VE_state].value);
   // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value + (String((int)tickslower) + "/" + String((int)tickfaster)));
   // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value);
-  mqttSend("/renogy/sensor/renogy_last_update", getClockTime());
-  mqttSend("/renogy/sensor/renogy_wifi_ssid", WiFi.SSID());
-  Serial.println("Data was send, return...");
-  delay(500);
 }
