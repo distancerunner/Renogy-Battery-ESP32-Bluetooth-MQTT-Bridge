@@ -4,8 +4,8 @@
  */
 
 #include "config.h"
-#include <BLEDevice.h>
-// #include <NimBLEDevice.h>
+// #include <BLEDevice.h>
+#include <NimBLEDevice.h>
 // #include <BLEUtils.h>
 // #include <BLEScan.h>
 // #include <BLEAdvertisedDevice.h>
@@ -232,18 +232,19 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
  /**
    * Called for each advertising BLE server.
    */
-  void onResult(BLEAdvertisedDevice advertisedDevice) {
+  void onResult(BLEAdvertisedDevice *advertisedDevice) {
     Serial.println("BLE Advertised Device found: ");
     // Serial.printf("%s", advertisedDevice.getName().c_str());
-    Serial.println(advertisedDevice.toString().c_str());
+    Serial.println(advertisedDevice->toString().c_str());
 
     // We have found a device, let us now see if it contains the service we are looking for.
-    if (strcmp(deviceAddresses[deviceAddressesNumber], advertisedDevice.getAddress().toString().c_str()) == 0) {
+    if (strcmp(deviceAddresses[deviceAddressesNumber], advertisedDevice->getAddress().toString().c_str()) == 0) {
       Serial.println("BLE Advertised Device found with serviceWriteUUID");
       delay(1000);
       Serial.println("");
       BLEDevice::getScan()->stop();
-      myDevice = new BLEAdvertisedDevice(advertisedDevice);
+      myDevice = advertisedDevice;
+      // myDevice = new BLEAdvertisedDevice(advertisedDevice);
       doConnect = true;
       doScan = true;
     } // Found our server
