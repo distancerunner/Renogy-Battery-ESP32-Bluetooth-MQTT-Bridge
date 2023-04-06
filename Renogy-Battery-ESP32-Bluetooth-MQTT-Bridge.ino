@@ -3,8 +3,12 @@
  * based on excellence work from: https://github.com/chadj/renogy-smart-battery
  */
 
-#include "BLEDevice.h"
 #include "config.h"
+#include <BLEDevice.h>
+// #include <NimBLEDevice.h>
+// #include <BLEUtils.h>
+// #include <BLEScan.h>
+// #include <BLEAdvertisedDevice.h>
 #include "wifiBridge.h"
 
 #define RENOGYHEADERSIZE 3 // drop first 3 bytes of response
@@ -28,6 +32,7 @@ String RENOGYtemperature="";
 String wifiSSIDValue="noSSID";
 String actualTimeStamp="00:00:00";
 uint8_t firstRun = 1;
+uint8_t reconnectCounter = 0;
 
 static boolean doConnect = false;
 static boolean connected = false;
@@ -36,8 +41,8 @@ static boolean doScan = false;
 
 BLERemoteService* pRemoteWriteService;
 BLERemoteService* pRemoteReadService;
-static BLERemoteCharacteristic* pRemoteWriteCharacteristic;
-static BLERemoteCharacteristic* pRemoteNotifyCharacteristic;
+BLERemoteCharacteristic* pRemoteWriteCharacteristic;
+BLERemoteCharacteristic* pRemoteNotifyCharacteristic;
 BLEAdvertisedDevice* myDevice;
 
 BLEClient* pClient;
@@ -159,15 +164,12 @@ class MyClientCallback : public BLEClientCallbacks {
   }
 };
 
-// bool disconnectToServer() {
-//   BLEDevice::
-// }
-
 bool connectToServer() {
     callData = "getLevels";
     Serial.print("Forming a connection to ");
     Serial.println(myDevice->getAddress().toString().c_str());
     
+    BLEDevice::setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
     pClient = BLEDevice::createClient();
     Serial.println(" - Created client");
     delay(2000);
@@ -187,7 +189,6 @@ bool connectToServer() {
       return false;
     }
     Serial.println(" - Found our pRemoteWriteService");
-    delay(500);
     pRemoteReadService = pClient->getService(serviceReadUUID);
     if (pRemoteReadService == nullptr) {
       Serial.print("Failed to find our service UUID: ");
@@ -196,7 +197,6 @@ bool connectToServer() {
       return false;
     }
     Serial.println(" - Found our pRemoteReadService");
-    delay(500);
     // Obtain a reference to the characteristic in the service of the remote BLE server.
     pRemoteWriteCharacteristic = pRemoteWriteService->getCharacteristic(WRITE_UUID);
     if (pRemoteWriteCharacteristic == nullptr) {
@@ -206,7 +206,6 @@ bool connectToServer() {
       return false;
     }
     Serial.println(F(" - Found our Write characteristic"));
-    delay(500);
         // Obtain a reference to the characteristic in the service of the remote BLE server.
     pRemoteNotifyCharacteristic = pRemoteReadService->getCharacteristic(NOTIFY_UUID);
     if (pRemoteNotifyCharacteristic == nullptr) {
@@ -217,7 +216,6 @@ bool connectToServer() {
     }
     Serial.println(F(" - Found our characteristic for notifications"));
 
-    delay(500);
     if(pRemoteNotifyCharacteristic->canNotify()) {
       Serial.println("Subscribe to characteristic...");
       pRemoteNotifyCharacteristic->registerForNotify(notifyCallback);
@@ -248,7 +246,6 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
       myDevice = new BLEAdvertisedDevice(advertisedDevice);
       doConnect = true;
       doScan = true;
-
     } // Found our server
   } // onResult
 }; // MyAdvertisedDeviceCallbacks
@@ -257,7 +254,9 @@ void setupDeviceAndConnect() {
   doConnect = false;
   connected = false;
   doScan = false;
-  BLEDevice::init("");
+  delay(2000);
+  reconnectCounter++;
+  BLEDevice::init("client");
   // Retrieve a Scanner and set the callback we want to use to be informed when we
   // have detected a new device.  Specify that we want active scanning and start the
   // scan to run for 5 seconds.
@@ -281,6 +280,7 @@ void setup() {
     setClock();
     if ( startMQTT()) {
       wifiSSIDValue = WiFi.SSID();
+      delay(1000);
       setupDeviceAndConnect();
       return;
     }
@@ -370,35 +370,38 @@ void loop() {
           deviceAddressesNumber++;
         }
 
-        pClient->disconnect();
+        // pClient->disconnect();
+        // BLEDevice::getClientByGattIf(pClient->getGattcIf())->disconnect();
         responseData = "";
         callData = "";
         Serial.println("re-connect to another host: ");
         Serial.print(deviceAddressesNumber, DEC);
         Serial.println("");
+        Serial.println("reconnectCounter: ");
+        Serial.print(reconnectCounter, DEC);
+        Serial.println("");
         Serial.println("wait 2s till reconnect...");
-        BLEDevice::deinit(false);
-        delay(2000);
+        // BLEDevice::deinit(true);
         setupDeviceAndConnect();
       }
 
-      if (callData == "connectToAnotherHost" && false) {
-        if ( deviceAddressesNumber <= (DEVICEAMOUNT-1)) {
-          deviceAddressesNumber++;
-          BLEDevice::deinit(false);
-          responseData = "";
-          callData = "";
-          Serial.println("re-connect to another host: ");
-          Serial.print(deviceAddressesNumber, DEC);
-          Serial.println("");
-          pClient->disconnect();
-          Serial.println("wait 2s till reconnect...");
-          delay(2000);
-          setupDeviceAndConnect();
-        } else {
-          callData == "getLevels";
-        }
-      }
+      // if (callData == "connectToAnotherHost" && false) {
+      //   if ( deviceAddressesNumber <= (DEVICEAMOUNT-1)) {
+      //     deviceAddressesNumber++;
+      //     BLEDevice::deinit(false);
+      //     responseData = "";
+      //     callData = "";
+      //     Serial.println("re-connect to another host: ");
+      //     Serial.print(deviceAddressesNumber, DEC);
+      //     Serial.println("");
+      //     pClient->disconnect();
+      //     Serial.println("wait 2s till reconnect...");
+      //     delay(2000);
+      //     setupDeviceAndConnect();
+      //   } else {
+      //     callData == "getLevels";
+      //   }
+      // }
 
       timerTicker2 = millis();
       timerTickerForWhatchDog = millis();
