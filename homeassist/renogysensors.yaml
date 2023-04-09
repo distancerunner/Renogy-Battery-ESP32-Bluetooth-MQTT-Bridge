@@ -25,7 +25,7 @@
   unique_id: "RenogySensorCapacity"
   state_topic: "/renogy/sensor/renogy_capacity"
   value_template: "{{ value }}"
-  unit_of_measurement: "Ah"
+  unit_of_measurement: "%"
   state_class: measurement
   device_class: "BATTERY"
 
