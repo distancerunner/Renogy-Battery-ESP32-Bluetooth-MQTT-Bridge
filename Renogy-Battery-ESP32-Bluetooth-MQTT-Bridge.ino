@@ -313,7 +313,7 @@ void loop() {
     doConnect = false;
   }
 
-  if (millis() > timerTickerForWhatchDog + 60000) {
+  if (millis() > timerTickerForWhatchDog + 300000*2) {
       // force a restart, if there is a problem somewhere, while we dont sent data after 60s
       Serial.println("");
       Serial.println("Timeout exceeded, ready for reset in 30s...");
@@ -325,7 +325,8 @@ void loop() {
   if (connected) {
     espUpdater();
 
-    if (millis() > timerTicker2 + 10000) {
+    if (millis() > timerTicker2 + 60000) {
+    // if (millis() > timerTicker2 + 10000) {
       // If we are connected to a peer BLE Server, update the characteristic
       byte commands[3][8] = {
         {0x30, 0x03, 0x13, 0xB2, 0x00, 0x06, 0x65, 0x4A}, // Levels
@@ -371,7 +372,7 @@ void loop() {
           deviceAddressesNumber++;
         }
 
-        // pClient->disconnect();
+        pClient->disconnect();
         // BLEDevice::getClientByGattIf(pClient->getGattcIf())->disconnect();
         responseData = "";
         callData = "";
