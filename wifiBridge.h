@@ -33,6 +33,18 @@ String getClockTime()
   return String(asctime(&timeinfo));
 }
 
+// Function that gets current epoch time
+unsigned long getEpochTime() {
+  time_t now;
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    //Serial.println("Failed to obtain time");
+    return(0);
+  }
+  time(&now);
+  return now;
+}
+
 // Set time via NTP, as required for x.509 validation
 void setClock() {
   configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");  // UTC

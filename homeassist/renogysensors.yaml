@@ -13,6 +13,14 @@
   state_class: measurement
   device_class: "VOLTAGE"
 
+- name: "Renogy Sensor Power"
+  unique_id: "RenogySensorPower"
+  state_topic: "/renogy/sensor/renogy_power"
+  value_template: "{{ value }}"
+  unit_of_measurement: "W"
+  state_class: measurement
+  device_class: "POWER"
+
 - name: "Renogy Sensor Charge Level"
   unique_id: "RenogySensorChargeLevel"
   state_topic: "/renogy/sensor/renogy_chargelevel"
@@ -45,6 +53,16 @@
 - name: "Renogy Wifi ssid"
   unique_id: "RenogyWifiSSID"
   state_topic: "/renogy/sensor/renogy_wifi_ssid"
+  value_template: "{{ value }}"
+
+- name: "Renogy Egg Timer"
+  unique_id: "RenogyEggTimer"
+  state_topic: "/renogy/sensor/renogy_timer"
+  value_template: "{{ value }}"
+
+- name: "Renogy Deviceaddressesnumber"
+  unique_id: "Renogydeviceaddressesnumber"
+  state_topic: "/renogy/sensor/renogy_deviceaddressesnumber"
   value_template: "{{ value }}"
 
 - name: "Renogy Battery Address"
