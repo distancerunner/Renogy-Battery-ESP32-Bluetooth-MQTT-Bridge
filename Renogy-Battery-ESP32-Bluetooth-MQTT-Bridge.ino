@@ -33,9 +33,13 @@ uint16_t timerCounterStart = 0;
 uint16_t timerCounterActual = 0;
 boolean timerIsRunning = false;
 
+static boolean tryReconnect = false;
 static boolean doConnect = false;
 static boolean connected = false;
 static boolean doScan = false;
+static uint32_t timerTickerForWhatchDog = millis();
+static uint32_t timerTickerForEggTimer = millis();
+static uint32_t timerTicker2 = millis();
 
 BLERemoteService* pRemoteWriteService;
 BLERemoteService* pRemoteReadService;
@@ -71,13 +75,10 @@ static void notifyCallback(
   uint8_t* pData,
   size_t length,
   bool isNotify) {
-    // Serial.print("Notify callback for characteristic ");
-    // Serial.print(pBLERemoteCharacteristic->getUUID().toString().c_str());
-    // Serial.print(" of data length ");
-    // Serial.println(length);
-    Serial.println("#####################");
-    Serial.println("Get notification from BLE device:");
-    // int byteCounter=0;
+
+    // Serial.println("#####################");
+    // Serial.println("Get notification from BLE device:");
+
     uint32_t tempvalueI;
 
     if(responseData=="getLevels") {
@@ -99,15 +100,15 @@ static void notifyCallback(
       RENOGYcapacity = tempvalueI * 0.001;
 
 
-      Serial.println("Get Levels ########");
-      Serial.println("Current:");
-      Serial.println(RENOGYcurrent);
-      Serial.println("Voltage:");
-      Serial.println(RENOGYvoltage);
-      Serial.println("RENOGYchargeLevel:");
-      Serial.println(RENOGYchargeLevel);
-      Serial.println("RENOGYcapacity:");
-      Serial.println(RENOGYcapacity);
+      // Serial.println("Get Levels ########");
+      // Serial.println("Current:");
+      // Serial.println(RENOGYcurrent);
+      // Serial.println("Voltage:");
+      // Serial.println(RENOGYvoltage);
+      // Serial.println("RENOGYchargeLevel:");
+      // Serial.println(RENOGYchargeLevel);
+      // Serial.println("RENOGYcapacity:");
+      // Serial.println(RENOGYcapacity);
 
 
       compareValuesForTimer();
@@ -119,7 +120,8 @@ static void notifyCallback(
     if(responseData=="getTemperatures") {
       uint8_t numberSensors = ((int16_t)pData[RENOGYHEADERSIZE+0] << 8) | pData[RENOGYHEADERSIZE+1];
 
-      Serial.println("Get Temperatures ########");
+      // Serial.println("Get Temperatures ########");
+
       int16_t averageTemp = 0;
       for (int i=1; i<=numberSensors; i++){
         int16_t valueSigned = ((int16_t)pData[RENOGYHEADERSIZE+(2*i)] << 8) | pData[RENOGYHEADERSIZE+1+(2*i)];
@@ -127,8 +129,9 @@ static void notifyCallback(
       }
 
       RENOGYtemperature = String((float)(averageTemp/numberSensors) * 0.1);
-      Serial.println("Temperature");
-      Serial.println(RENOGYtemperature);
+
+      // Serial.println("Temperature");
+      // Serial.println(RENOGYtemperature);
 
       flexiblePollingSpeed = 20000; // next call for host switch in 20s
       callData="connectToAnotherHost";
@@ -152,13 +155,13 @@ static void notifyCallback(
       callData="getLevels";
     }
     /* pData Debug... */
-    Serial.println("Hex data received:"); 
-    for (int i=1; i<=length; i++){
-      Serial.printf("%02x", pData[i-1]);
-      if(i % 2 == 0){
-        Serial.print(" "); 
-      }
-    }
+    // Serial.println("Hex data received:"); 
+    // for (int i=1; i<=length; i++){
+    //   Serial.printf("%02x", pData[i-1]);
+    //   if(i % 2 == 0){
+    //     Serial.print(" "); 
+    //   }
+    // }
     Serial.println(" "); 
     Serial.println("END notifyCallback ########");
     delay(5);
@@ -194,7 +197,7 @@ void compareValuesForTimer() {
 
     // check if there is a massive voltage drop between 2 measurements
     // 13.5 - 13.1 = 0.4
-    if ((float)voltage - RENOGYvoltage.toFloat() >= 0.4) {
+    if ((float)voltage - RENOGYvoltage.toFloat() >= 0.2) {
       // check if there is also massive current drop between 2 measurements
       if (abs(current[deviceAddressesNumber] - RENOGYcurrent.toFloat()) >= 10) {
         timerCounterStart = getEpochTime();
@@ -240,16 +243,18 @@ bool connectToServer() {
     BLEDevice::setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
     pClient = NimBLEDevice::createClient(NimBLEAddress(deviceAddresses[deviceAddressesNumber]));
     Serial.println(" - Created client");
-    delay(200);
+    // delay(700);
     pClient->setClientCallbacks(new MyClientCallback());
-    delay(200);
+    // delay(700);
     // Connect to the remove BLE Server.
     pClient->connect();  // if you pass BLEAdvertisedDevice instead of address, it will be recognized type of peer device address (public or private)
     Serial.println(" - Connected to server");
+    delay(700);
     // pClient->setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
   
     // Obtain a reference to the service we are after in the remote BLE server.
     pRemoteWriteService = pClient->getService(serviceWriteUUID);
+    // if (true) {
     if (pRemoteWriteService == nullptr) {
       Serial.print("Failed to find our service UUID: ");
       Serial.println(serviceWriteUUID.toString().c_str());
@@ -291,7 +296,7 @@ bool connectToServer() {
 
     // BLEDevice::getScan()->clearResults();
     connected = true;
-    flexiblePollingSpeed = 2000; // next call for data in 2s
+    flexiblePollingSpeed = 6000; // next call for data in 2s
     return true;
 }
 
@@ -299,7 +304,7 @@ void setupDeviceAndConnect() {
   doConnect = true;
   connected = false;
   doScan = true;
-  delay(200);
+  delay(1000);
 
   BLEDevice::init("client");
 }
@@ -333,8 +338,6 @@ void setup() {
 
 // This is the Arduino main loop function.
 void loop() {
-  static uint32_t timerTickerForWhatchDog = millis();
-  static uint32_t timerTicker2 = millis();
   // If the flag "doConnect" is true then we have scanned for and found the desired
   // BLE Server with which we wish to connect.  Now we connect to it.  Once we are 
   // connected we set the connected flag to be true.
@@ -344,6 +347,7 @@ void loop() {
       Serial.println("################################################");
     } else {
       Serial.println("We have failed to connect to the server; there is nothin more we will do.");
+      tryReconnect = true;
     }
     doConnect = false;
   }
@@ -355,6 +359,28 @@ void loop() {
       getClockTime();
       delay(30000);
       ESP.restart();
+  }
+
+  if (tryReconnect) {
+    Serial.println("failed during connection... wait 30s and try again.");
+    delay(10000);
+  }
+
+  if ((millis() > timerTicker2 + 30000) && tryReconnect) {
+    tryReconnect = false;
+    // force a restart, if there is a problem somewhere, while we dont sent data after 60s
+    pClient->disconnect();
+    responseData = "";
+    callData = "";
+    Serial.println("");
+    Serial.println("re-connect to host...");
+    switchDdeviceAddressesNumber();
+    setupDeviceAndConnect();
+  }
+
+  if ((millis() > timerTickerForEggTimer + 5000) && timerIsRunning) {
+    timerTickerForEggTimer = millis();
+    sendMqttData();
   }
 
   if (connected) {
@@ -401,14 +427,9 @@ void loop() {
 
       if (callData == "connectToAnotherHost") {
         // if the last device was called, return to the first one
-        if ( deviceAddressesNumber >= (DEVICEAMOUNT-1)) {
-          deviceAddressesNumber=0;
-        } else {
-          deviceAddressesNumber++;
-        }
+        switchDdeviceAddressesNumber();
 
         pClient->disconnect();
-        // BLEDevice::getClientByGattIf(pClient->getGattcIf())->disconnect();
         responseData = "";
         callData = "";
         Serial.println("");
@@ -420,12 +441,17 @@ void loop() {
       timerTicker2 = millis();
       timerTickerForWhatchDog = millis();
     }
-  }else if(doScan){
-    BLEDevice::getScan()->start(0);  // this is just example to start scan after disconnect, most likely there is better way to do it in arduino
   }
   
 } // End of loop
 
+void switchDdeviceAddressesNumber() {
+  if ( deviceAddressesNumber >= (DEVICEAMOUNT-1)) {
+    deviceAddressesNumber=0;
+  } else {
+    deviceAddressesNumber++;
+  }
+}
 
 // check for wifi and mqtt connection, true if connectes
 // restart device, if connection is gone
@@ -458,9 +484,9 @@ boolean checkWiFiConnection() {
 
 void sendMqttData() {
   Serial.println("Send MQTT data...");
-  Serial.println(deviceAddresses[deviceAddressesNumber]);
+  // Serial.println(deviceAddresses[deviceAddressesNumber]);
   // connected = true;
-  Serial.println();
+  // Serial.println();
 
   // mqttSend("/victron/sensor/watt", String(counter));
   mqttSend("/renogy/sensor/renogy_last_update", actualTimeStamp);
@@ -475,6 +501,6 @@ void sendMqttData() {
 
   mqttSend("/renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
   mqttSend("/renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
-  Serial.println("Data was send, return...");
-  delay(500);
+  Serial.println("Mqtt data was send, return...");
+  // delay(500);
 }
