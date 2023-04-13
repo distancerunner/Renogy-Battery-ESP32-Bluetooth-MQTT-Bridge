@@ -4,16 +4,10 @@
  */
 
 #include "config.h"
-// #include <BLEDevice.h>
 #include <NimBLEDevice.h>
-// #include <BLEUtils.h>
-// #include <BLEScan.h>
-// #include <BLEAdvertisedDevice.h>
 #include "wifiBridge.h"
 
 #define RENOGYHEADERSIZE 3 // drop first 3 bytes of response
-
-#define bleServerAddress "60:98:66:f9:3a:0f" // Address of my BT battery device
 
 // The remote service, we wish to connect to.
 static BLEUUID serviceWriteUUID("0000ffd0-0000-1000-8000-00805f9b34fb"); // WRITE
@@ -34,7 +28,7 @@ String RENOGYtimer="00:00";
 String wifiSSIDValue="noSSID";
 String actualTimeStamp="00:00:00";
 uint8_t firstRun = 1;
-uint8_t callcounter = 0;
+int flexiblePollingSpeed = 20000;
 uint16_t timerCounterStart = 0;
 uint16_t timerCounterActual = 0;
 boolean timerIsRunning = false;
@@ -47,12 +41,14 @@ BLERemoteService* pRemoteWriteService;
 BLERemoteService* pRemoteReadService;
 BLERemoteCharacteristic* pRemoteWriteCharacteristic;
 BLERemoteCharacteristic* pRemoteNotifyCharacteristic;
-BLEAdvertisedDevice* myDevice;
+// BLEAdvertisedDevice* myDevice;
 
 BLEClient* pClient;
-BLEScan* pBLEScan;
+// BLEScan* pBLEScan;
 
 #define DEVICEAMOUNT 2
+
+// Address of my BT battery devices
 static const char* deviceAddresses[DEVICEAMOUNT] = {
   "60:98:66:ed:cb:8b",
   "60:98:66:f9:3a:0f"
@@ -116,13 +112,8 @@ static void notifyCallback(
 
       compareValuesForTimer();
 
-      // call every 10th call the temp values (their changes are very slow)
-      if (callcounter >= 12) {
-        callData="getTemperatures";
-        callcounter=0;
-      } else {
-        callData="connectToAnotherHost";
-      }
+      callData="getTemperatures";
+      flexiblePollingSpeed = 2000; // next call for data in 2s
     }
 
     if(responseData=="getTemperatures") {
@@ -139,8 +130,7 @@ static void notifyCallback(
       Serial.println("Temperature");
       Serial.println(RENOGYtemperature);
 
-      callcounter=0;
-      // callData="getCellVolts"; // exclude cellVolts for now
+      flexiblePollingSpeed = 20000; // next call for host switch in 20s
       callData="connectToAnotherHost";
       // callData="getLevels";
     }
@@ -244,16 +234,17 @@ void compareValuesForTimer() {
 bool connectToServer() {
     callData = "getLevels";
     Serial.print("Forming a connection to ");
-    Serial.println(myDevice->getAddress().toString().c_str());
+    // Serial.println(myDevice->getAddress().toString().c_str());
+    Serial.println(deviceAddresses[deviceAddressesNumber]);
     
     BLEDevice::setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
-    pClient = BLEDevice::createClient();
+    pClient = NimBLEDevice::createClient(NimBLEAddress(deviceAddresses[deviceAddressesNumber]));
     Serial.println(" - Created client");
-    delay(2000);
+    delay(200);
     pClient->setClientCallbacks(new MyClientCallback());
-    delay(2000);
+    delay(200);
     // Connect to the remove BLE Server.
-    pClient->connect(myDevice);  // if you pass BLEAdvertisedDevice instead of address, it will be recognized type of peer device address (public or private)
+    pClient->connect();  // if you pass BLEAdvertisedDevice instead of address, it will be recognized type of peer device address (public or private)
     Serial.println(" - Connected to server");
     // pClient->setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
   
@@ -298,52 +289,19 @@ bool connectToServer() {
       pRemoteNotifyCharacteristic->registerForNotify(notifyCallback);
     }
 
-    BLEDevice::getScan()->clearResults();
+    // BLEDevice::getScan()->clearResults();
     connected = true;
+    flexiblePollingSpeed = 2000; // next call for data in 2s
     return true;
 }
-/**
- * Scan for BLE servers and find the first one that advertises the service we are looking for.
- */
-class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
- /**
-   * Called for each advertising BLE server.
-   */
-  void onResult(BLEAdvertisedDevice *advertisedDevice) {
-    Serial.println("BLE Advertised Device found: ");
-    // Serial.printf("%s", advertisedDevice.getName().c_str());
-    Serial.println(advertisedDevice->toString().c_str());
-
-    // We have found a device, let us now see if it contains the service we are looking for.
-    if (strcmp(deviceAddresses[deviceAddressesNumber], advertisedDevice->getAddress().toString().c_str()) == 0) {
-      Serial.println("BLE Advertised Device found with serviceWriteUUID");
-      delay(1000);
-      Serial.println("");
-      BLEDevice::getScan()->stop();
-      myDevice = advertisedDevice;
-      // myDevice = new BLEAdvertisedDevice(advertisedDevice);
-      doConnect = true;
-      doScan = true;
-    } // Found our server
-  } // onResult
-}; // MyAdvertisedDeviceCallbacks
 
 void setupDeviceAndConnect() {
-  doConnect = false;
+  doConnect = true;
   connected = false;
-  doScan = false;
-  delay(2000);
+  doScan = true;
+  delay(200);
 
   BLEDevice::init("client");
-  // Retrieve a Scanner and set the callback we want to use to be informed when we
-  // have detected a new device.  Specify that we want active scanning and start the
-  // scan to run for 5 seconds.
-  pBLEScan = BLEDevice::getScan();
-  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-  pBLEScan->setInterval(1349);
-  pBLEScan->setWindow(449);
-  pBLEScan->setActiveScan(true);
-  pBLEScan->start(5, false);
 }
 
 
@@ -402,7 +360,7 @@ void loop() {
   if (connected) {
     espUpdater();
 
-    if (millis() > timerTicker2 + 20000) {
+    if (millis() > timerTicker2 + flexiblePollingSpeed) {
     // if (millis() > timerTicker2 + 10000) {
       // If we are connected to a peer BLE Server, update the characteristic
       byte commands[3][8] = {
@@ -415,7 +373,6 @@ void loop() {
 
       actualTimeStamp = getClockTime();
       if (callData == "getLevels") {
-        callcounter++;
         if (checkWiFiConnection()) {
           responseData = "getLevels";
           callData = "";
@@ -455,28 +412,10 @@ void loop() {
         responseData = "";
         callData = "";
         Serial.println("");
-        Serial.println("wait 2s till reconnect...");
+        Serial.println("connect To Another Host...");
 
         setupDeviceAndConnect();
       }
-
-      // if (callData == "connectToAnotherHost" && false) {
-      //   if ( deviceAddressesNumber <= (DEVICEAMOUNT-1)) {
-      //     deviceAddressesNumber++;
-      //     BLEDevice::deinit(false);
-      //     responseData = "";
-      //     callData = "";
-      //     Serial.println("re-connect to another host: ");
-      //     Serial.print(deviceAddressesNumber, DEC);
-      //     Serial.println("");
-      //     pClient->disconnect();
-      //     Serial.println("wait 2s till reconnect...");
-      //     delay(2000);
-      //     setupDeviceAndConnect();
-      //   } else {
-      //     callData == "getLevels";
-      //   }
-      // }
 
       timerTicker2 = millis();
       timerTickerForWhatchDog = millis();
@@ -485,8 +424,6 @@ void loop() {
     BLEDevice::getScan()->start(0);  // this is just example to start scan after disconnect, most likely there is better way to do it in arduino
   }
   
-  // delay(10000); // Delay a second between loops.
-  // ESP.restart();
 } // End of loop
 
 
@@ -540,7 +477,4 @@ void sendMqttData() {
   mqttSend("/renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
   Serial.println("Data was send, return...");
   delay(500);
-  // mqttSend("/victron/sensor/ve_state", VEStatus[VE_state].value);
-  // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value + (String((int)tickslower) + "/" + String((int)tickfaster)));
-  // mqttSend("/victron/sensor/ve_error", VEError[VE_error].value);
 }

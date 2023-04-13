@@ -112,7 +112,7 @@ void mqttSend(String sensor, String value) {
 // Startup
 //
 boolean startMQTT() {
-    Serial.println("connecting to host...");
+    Serial.println("connecting to mqtt host...");
     client.begin(mqtt_server[0], mqtt_port[0], "/mqtt", "mqtt");  // "mqtt" is required
     client.setReconnectInterval(2000);
 
