@@ -18,9 +18,11 @@ static BLEUUID NOTIFY_UUID("0000fff1-0000-1000-8000-00805f9b34fb");
 
 String callData = "getLevels";
 String responseData = "";
-String RENOGYcurrent="";
 String RENOGYpower="";
+String RENOGYcurrent="";
 String RENOGYvoltage="";
+String RENOGYcurrentDebug="0";
+String RENOGYvoltageDebug="0";
 String RENOGYchargeLevel="";
 String RENOGYcapacity="";
 String RENOGYtemperature="";
@@ -99,7 +101,6 @@ static void notifyCallback(
       tempvalueI = ((uint8_t)pData[RENOGYHEADERSIZE+8] << 24) | ((uint8_t)pData[RENOGYHEADERSIZE+9] << 16) | ((uint8_t)pData[RENOGYHEADERSIZE+10] << 8) | (uint8_t)pData[RENOGYHEADERSIZE+11];
       RENOGYcapacity = tempvalueI * 0.001;
 
-
       // Serial.println("Get Levels ########");
       // Serial.println("Current:");
       // Serial.println(RENOGYcurrent);
@@ -110,8 +111,14 @@ static void notifyCallback(
       // Serial.println("RENOGYcapacity:");
       // Serial.println(RENOGYcapacity);
 
+      // for debug, no hardware is needed: s for start, e for end
+      if (RENOGYcurrentDebug!="0") {
+        RENOGYvoltage = RENOGYvoltageDebug;
+        RENOGYcurrent = RENOGYcurrentDebug;
+      }
 
       compareValuesForTimer();
+      updateEggTimer();
 
       callData="getTemperatures";
       flexiblePollingSpeed = 2000; // next call for data in 2s
@@ -178,15 +185,35 @@ class MyClientCallback : public BLEClientCallbacks {
   }
 };
 
-void compareValuesForTimer() {
-    Serial.println("compareValuesForTimer");
-    Serial.println((float)voltage - RENOGYvoltage.toFloat());
-    Serial.println(timerIsRunning);
-    Serial.println(power[deviceAddressesNumber]);
+void updateEggTimer() {
+  if (timerIsRunning) {
+    char buffer[5];
+    timerCounterActual = getEpochTime() - timerCounterStart;
+    Serial.println("timerIsRunning: timerCounterActual");
+    Serial.println(timerCounterActual);
+    sprintf (buffer, "%02u:%02u", timerCounterActual / 60, timerCounterActual % 60);
+    Serial.println(buffer);
+    RENOGYtimer = buffer;
+    RENOGYtimer.remove(5);
+  }
+}
 
-    // buffer 15s, till first attempt to stop timer. to avoid issues while fetching data from other device
+void compareValuesForTimer() {
+  Serial.println("compareValuesForTimer");
+  Serial.printf("dVoltage: %f dCurrent: %f Power %f ISRunning: %s", 
+    (RENOGYvoltage.toFloat()), RENOGYcurrent.toFloat(),
+    power[deviceAddressesNumber], timerIsRunning?"true":"false"
+  );
+  Serial.println("");
+  Serial.printf("dVoltage: %f dCurrent: %f Power %f ISRunning: %s", 
+    ((float)voltage - RENOGYvoltage.toFloat()), abs(current[deviceAddressesNumber] - RENOGYcurrent.toFloat()),
+    power[deviceAddressesNumber], timerIsRunning?"true":"false"
+  );
+  Serial.println("");
+  if (timerIsRunning) {
+    // buffer 90s, till first attempt to stop timer. to avoid issues while fetching data from other device
     if (
-        (abs(power[deviceAddressesNumber]) <= 100 && timerIsRunning && timerCounterActual > 15)
+        (abs(power[deviceAddressesNumber]) <= 100 && timerCounterActual > 90)
          ||
          // force stop of timer, after 1800s/30min in case it is still running
          timerCounterActual > 1800
@@ -194,44 +221,42 @@ void compareValuesForTimer() {
       timerIsRunning = false;
       RENOGYtimer = "00:00";
     }
+  }
 
+  if (!timerIsRunning) {
     // check if there is a massive voltage drop between 2 measurements
     // 13.5 - 13.1 = 0.4
-    if ((float)voltage - RENOGYvoltage.toFloat() >= 0.2) {
+    if ((float)voltage - RENOGYvoltage.toFloat() >= 0.1) {
       // check if there is also massive current drop between 2 measurements
       if (abs(current[deviceAddressesNumber] - RENOGYcurrent.toFloat()) >= 10) {
         timerCounterStart = getEpochTime();
         timerIsRunning = true;
+        
+        // for interpolation, set current equal in every device
+        for (int i = 0; i < DEVICEAMOUNT; i++){
+          current[deviceAddressesNumber] = RENOGYcurrent.toFloat();
+        }
       }
     }
+  }
 
-    voltage = RENOGYvoltage.toFloat();
-    current[deviceAddressesNumber] = RENOGYcurrent.toFloat();
-    power[deviceAddressesNumber] = RENOGYcurrent.toFloat()*RENOGYvoltage.toFloat();
+  voltage = RENOGYvoltage.toFloat();
+  current[deviceAddressesNumber] = RENOGYcurrent.toFloat();
+  power[deviceAddressesNumber] = RENOGYcurrent.toFloat()*RENOGYvoltage.toFloat();
 
-    RENOGYpower = "0";
-    int powerTemp;
-    for (int i = 0; i < DEVICEAMOUNT; i++)
-    {
-      Serial.print("current:");
-      Serial.println(i);
-      Serial.println(current[i]);
-      Serial.print("power:");
-      Serial.println(i);
-      Serial.println(power[i]);
-      powerTemp += power[i];
-    }
-    RENOGYpower = String(powerTemp);
-
-    if (timerIsRunning) {
-      char buffer[5];
-      timerCounterActual = getEpochTime() - timerCounterStart;
-      Serial.println("timerCounterActual");
-      Serial.println(timerCounterActual);
-      sprintf (buffer, "%02u:%02u", timerCounterActual / 60, timerCounterActual % 60);
-      Serial.println(buffer);
-      RENOGYtimer = buffer;
-    }
+  RENOGYpower = "0";
+  int powerTemp = 0;
+  for (int i = 0; i < DEVICEAMOUNT; i++)
+  {
+    Serial.print("current:");
+    Serial.println(i);
+    Serial.println(current[i]);
+    Serial.print("power:");
+    Serial.println(i);
+    Serial.println(power[i]);
+    powerTemp += power[i];
+  }
+  RENOGYpower = String(powerTemp);
 }
 
 bool connectToServer() {
@@ -321,6 +346,8 @@ void setup() {
     setClock();
     if ( startMQTT()) {
       wifiSSIDValue = WiFi.SSID();
+      wifiSSIDValue = wifiSSIDValue + " " + WiFi.localIP().toString();
+      Serial.println(WiFi.localIP());
       delay(1000);
       setupDeviceAndConnect();
       return;
@@ -338,6 +365,20 @@ void setup() {
 
 // This is the Arduino main loop function.
 void loop() {
+
+  if(Serial.available()){
+    char charE = Serial.read();
+    if(charE == 's') {
+      RENOGYcurrentDebug="-10";
+      RENOGYvoltageDebug="13.0";
+    }
+
+    if(charE == 'e') {
+      RENOGYcurrentDebug="0";
+      RENOGYvoltageDebug="0";
+    }
+
+  }
   // If the flag "doConnect" is true then we have scanned for and found the desired
   // BLE Server with which we wish to connect.  Now we connect to it.  Once we are 
   // connected we set the connected flag to be true.
@@ -355,18 +396,18 @@ void loop() {
   if (millis() > timerTickerForWhatchDog + 300000*2) {
       // force a restart, if there is a problem somewhere, while we dont sent data after 60s
       Serial.println("");
-      Serial.println("Timeout exceeded, ready for reset in 30s...");
+      Serial.println("Timeout exceeded, ready for reset in 15s...");
       getClockTime();
-      delay(30000);
+      delay(15000);
       ESP.restart();
   }
 
   if (tryReconnect) {
-    Serial.println("failed during connection... wait 30s and try again.");
-    delay(10000);
+    Serial.println("failed during connection... wait 10s and try again.");
+    delay(2000);
   }
 
-  if ((millis() > timerTicker2 + 30000) && tryReconnect) {
+  if ((millis() > timerTicker2 + 10000) && tryReconnect) {
     tryReconnect = false;
     // force a restart, if there is a problem somewhere, while we dont sent data after 60s
     pClient->disconnect();
@@ -378,8 +419,10 @@ void loop() {
     setupDeviceAndConnect();
   }
 
-  if ((millis() > timerTickerForEggTimer + 5000) && timerIsRunning) {
+  if ((millis() > timerTickerForEggTimer + 10000) && timerIsRunning) {
+    Serial.println("Eggtimer is running. Send new timer data a bit more often.");
     timerTickerForEggTimer = millis();
+    updateEggTimer();
     sendMqttData();
   }
 
@@ -484,11 +527,6 @@ boolean checkWiFiConnection() {
 
 void sendMqttData() {
   Serial.println("Send MQTT data...");
-  // Serial.println(deviceAddresses[deviceAddressesNumber]);
-  // connected = true;
-  // Serial.println();
-
-  // mqttSend("/victron/sensor/watt", String(counter));
   mqttSend("/renogy/sensor/renogy_last_update", actualTimeStamp);
   mqttSend("/renogy/sensor/renogy_current", String(RENOGYcurrent));
   mqttSend("/renogy/sensor/renogy_power", RENOGYpower);
@@ -502,5 +540,4 @@ void sendMqttData() {
   mqttSend("/renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
   mqttSend("/renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
   Serial.println("Mqtt data was send, return...");
-  // delay(500);
 }
