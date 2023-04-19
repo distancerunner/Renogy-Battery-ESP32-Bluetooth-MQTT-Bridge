@@ -7,6 +7,39 @@
 #include <NimBLEDevice.h>
 #include "wifiBridge.h"
 
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+Adafruit_MPU6050 mpu;
+#include "DHT.h"
+#define DHT11PIN 15
+
+DHT dht(DHT11PIN, DHT11);
+
+uint8_t buttonState = 0;
+// Variables will change:
+int lastState = LOW;  // the previous state from the input pin
+int currentState;     // the current reading from the input pin
+struct Button {
+	const uint8_t BUTTON_PIN;
+	uint32_t numberKeyPresses;
+	bool pressed;
+};
+Button button1 = {19, 2, false};
+//variables to keep track of the timing of recent interrupts
+unsigned long button_time = 0;  
+unsigned long last_button_time = 0;
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
 #define RENOGYHEADERSIZE 3 // drop first 3 bytes of response
 
 // The remote service, we wish to connect to.
@@ -18,23 +51,27 @@ static BLEUUID NOTIFY_UUID("0000fff1-0000-1000-8000-00805f9b34fb");
 
 String callData = "getLevels";
 String responseData = "";
-String RENOGYpower="";
-String RENOGYcurrent="";
-String RENOGYvoltage="";
+String RENOGYpower="0";
+String RENOGYcurrent="0";
+String RENOGYvoltage="0";
 String RENOGYcurrentDebug="0";
 String RENOGYvoltageDebug="0";
-String RENOGYchargeLevel="";
-String RENOGYcapacity="";
-String RENOGYtemperature="";
+String RENOGYchargeLevel="0";
+String RENOGYcapacity="0";
+String RENOGYtemperature="0";
 String RENOGYtimer="00:00";
 String wifiSSIDValue="noSSID";
 String actualTimeStamp="00:00:00";
 uint8_t firstRun = 1;
 int flexiblePollingSpeed = 20000;
+int reconnectTimeOut = 10000;
 uint16_t timerCounterStart = 0;
 uint16_t timerCounterActual = 0;
 boolean timerIsRunning = false;
+boolean wifiExist = false;
+boolean MQTTexist = false;
 
+static boolean issueWithBT = false;
 static boolean tryReconnect = false;
 static boolean doConnect = false;
 static boolean connected = false;
@@ -42,6 +79,9 @@ static boolean doScan = false;
 static uint32_t timerTickerForWhatchDog = millis();
 static uint32_t timerTickerForEggTimer = millis();
 static uint32_t timerTicker2 = millis();
+
+static uint32_t timerTickerDisplay = millis();
+uint32_t duration = 200;
 
 BLERemoteService* pRemoteWriteService;
 BLERemoteService* pRemoteReadService;
@@ -71,6 +111,21 @@ uint8_t deviceAddressesNumber=0;
 int mqtt_server_count = sizeof(mqtt_server) / sizeof(mqtt_server[0]);
 //Address of the peripheral device. Address will be found during scanning...
 // static BLE pServerAddress;
+
+void IRAM_ATTR myInterrupt() {
+  button_time = millis();
+  if (button_time - last_button_time > 250)
+  {
+    if (button1.numberKeyPresses < 2) {
+      button1.numberKeyPresses++;
+    } else {
+      button1.numberKeyPresses=0;
+    }
+    duration=0;
+    last_button_time = button_time;
+  }
+	// button1.pressed = true;
+}
 
 static void notifyCallback(
   BLERemoteCharacteristic* pBLERemoteCharacteristic,
@@ -260,75 +315,86 @@ void compareValuesForTimer() {
 }
 
 bool connectToServer() {
-    callData = "getLevels";
-    Serial.print("Forming a connection to ");
-    // Serial.println(myDevice->getAddress().toString().c_str());
-    Serial.println(deviceAddresses[deviceAddressesNumber]);
-    
-    BLEDevice::setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
-    pClient = NimBLEDevice::createClient(NimBLEAddress(deviceAddresses[deviceAddressesNumber]));
-    Serial.println(" - Created client");
-    // delay(700);
-    pClient->setClientCallbacks(new MyClientCallback());
-    // delay(700);
-    // Connect to the remove BLE Server.
-    pClient->connect();  // if you pass BLEAdvertisedDevice instead of address, it will be recognized type of peer device address (public or private)
-    Serial.println(" - Connected to server");
-    delay(700);
-    // pClient->setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
+  callData = "getLevels";
+  Serial.print("Forming a connection to ");
+  // Serial.println(myDevice->getAddress().toString().c_str());
+  Serial.println(deviceAddresses[deviceAddressesNumber]);
   
-    // Obtain a reference to the service we are after in the remote BLE server.
-    pRemoteWriteService = pClient->getService(serviceWriteUUID);
-    // if (true) {
-    if (pRemoteWriteService == nullptr) {
-      Serial.print("Failed to find our service UUID: ");
-      Serial.println(serviceWriteUUID.toString().c_str());
-      pClient->disconnect();
-      return false;
-    }
-    Serial.println(" - Found our pRemoteWriteService");
-    pRemoteReadService = pClient->getService(serviceReadUUID);
-    if (pRemoteReadService == nullptr) {
-      Serial.print("Failed to find our service UUID: ");
-      Serial.println(serviceReadUUID.toString().c_str());
-      pClient->disconnect();
-      return false;
-    }
-    Serial.println(" - Found our pRemoteReadService");
-    // Obtain a reference to the characteristic in the service of the remote BLE server.
-    pRemoteWriteCharacteristic = pRemoteWriteService->getCharacteristic(WRITE_UUID);
-    if (pRemoteWriteCharacteristic == nullptr) {
-      Serial.print(F("Failed to find our characteristic UUID: "));
-      Serial.println(WRITE_UUID.toString().c_str());
-      pClient->disconnect();
-      return false;
-    }
-    Serial.println(F(" - Found our Write characteristic"));
-        // Obtain a reference to the characteristic in the service of the remote BLE server.
-    pRemoteNotifyCharacteristic = pRemoteReadService->getCharacteristic(NOTIFY_UUID);
-    if (pRemoteNotifyCharacteristic == nullptr) {
-      Serial.print(F("Failed to find our characteristic UUID: "));
-      Serial.println(NOTIFY_UUID.toString().c_str());
-      pClient->disconnect();
-      return false;
-    }
-    Serial.println(F(" - Found our characteristic for notifications"));
+  BLEDevice::setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
+  pClient = NimBLEDevice::createClient(NimBLEAddress(deviceAddresses[deviceAddressesNumber]));
+  Serial.println(" - Created client");
+  // delay(700);
+  pClient->setClientCallbacks(new MyClientCallback());
+  // delay(700);
+  // Connect to the remove BLE Server.
+  pClient->connect();  // if you pass BLEAdvertisedDevice instead of address, it will be recognized type of peer device address (public or private)
+  Serial.println(" - Connected to server");
+  issueWithBT = true;
+  delay(700);
+  if (!pClient->isConnected()) {
+    pClient->disconnect();
+    return false;
+  }
 
-    if(pRemoteNotifyCharacteristic->canNotify()) {
-      Serial.println("Subscribe to characteristic...");
-      pRemoteNotifyCharacteristic->registerForNotify(notifyCallback);
-    }
+  // Obtain a reference to the service we are after in the remote BLE server.
+  pRemoteWriteService = pClient->getService(serviceWriteUUID);
+  // if (true) {
+  if (pRemoteWriteService == nullptr) {
+    Serial.print("Failed to find our service UUID: ");
+    Serial.println(serviceWriteUUID.toString().c_str());
+    pClient->disconnect();
+    return false;
+  }
+  Serial.println(" - Found our pRemoteWriteService");
+  pRemoteReadService = pClient->getService(serviceReadUUID);
+  if (pRemoteReadService == nullptr) {
+    Serial.print("Failed to find our service UUID: ");
+    Serial.println(serviceReadUUID.toString().c_str());
+    pClient->disconnect();
+    return false;
+  }
+  Serial.println(" - Found our pRemoteReadService");
+  // Obtain a reference to the characteristic in the service of the remote BLE server.
+  pRemoteWriteCharacteristic = pRemoteWriteService->getCharacteristic(WRITE_UUID);
+  if (pRemoteWriteCharacteristic == nullptr) {
+    Serial.print(F("Failed to find our characteristic UUID: "));
+    Serial.println(WRITE_UUID.toString().c_str());
+    pClient->disconnect();
+    return false;
+  }
+  Serial.println(F(" - Found our Write characteristic"));
+      // Obtain a reference to the characteristic in the service of the remote BLE server.
+  pRemoteNotifyCharacteristic = pRemoteReadService->getCharacteristic(NOTIFY_UUID);
+  if (pRemoteNotifyCharacteristic == nullptr) {
+    Serial.print(F("Failed to find our characteristic UUID: "));
+    Serial.println(NOTIFY_UUID.toString().c_str());
+    pClient->disconnect();
+    return false;
+  }
+  Serial.println(F(" - Found our characteristic for notifications"));
 
-    // BLEDevice::getScan()->clearResults();
-    connected = true;
-    flexiblePollingSpeed = 6000; // next call for data in 2s
-    return true;
+  if(pRemoteNotifyCharacteristic->canNotify()) {
+    Serial.println("Subscribe to characteristic...");
+    pRemoteNotifyCharacteristic->registerForNotify(notifyCallback);
+  }
+
+  // BLEDevice::getScan()->clearResults();
+  connected = true;
+  issueWithBT = false;
+  flexiblePollingSpeed = 6000; // next call for data in 2s
+  return true;
 }
 
 void setupDeviceAndConnect() {
   doConnect = true;
   connected = false;
   doScan = true;
+
+  display.setTextSize(1);
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("Connecting to BLE Device...");
+  display.display();
   delay(1000);
 
   BLEDevice::init("client");
@@ -339,9 +405,50 @@ void setup() {
   Serial.begin(19200);
   Serial.println("Starting Arduino BLE Client application...");
 
+  display.setRotation(2);
+  dht.begin();
+
+  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;); // Don't proceed, loop forever
+  }
+
+  display.display();
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(WHITE);
+
+  // Try to initialize!
+  if (!mpu.begin()) {
+    Serial.println("Failed to find MPU6050 chip");
+    while (1) {
+      delay(10);
+    }
+  }
+  Serial.println("MPU6050 Found!");
+
+  mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
+  mpu.setGyroRange(MPU6050_RANGE_250_DEG);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+
+  Serial.println("");
+  pinMode(button1.BUTTON_PIN, INPUT_PULLUP);
+  attachInterrupt(button1.BUTTON_PIN, myInterrupt, RISING);
+
+  display.setTextSize(1);
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("Scan for WIFI...");
+  display.display();
+
   if (startWiFiMulti()) {
     Serial.println("Wifi connected make next step...");
+    display.println("Wifi connected make next step...");
+    wifiExist = true;
     Serial.println();  
+
+    display.println("Start MQTT...");
+    display.display();
 
     setClock();
     if ( startMQTT()) {
@@ -350,9 +457,15 @@ void setup() {
       Serial.println(WiFi.localIP());
       delay(1000);
       setupDeviceAndConnect();
+      MQTTexist = true;
+      display.println("MQTT connected make next step...");
+      return;
+    } else {
       return;
     }
 
+  } else { 
+    return; 
   }
 
   Serial.println("");
@@ -404,10 +517,16 @@ void loop() {
 
   if (tryReconnect) {
     Serial.println("failed during connection... wait 10s and try again.");
-    delay(2000);
+    reconnectTimeOut = 10000; // wait 60s until next connection try
+
+    if (issueWithBT) {
+      // in case, the BT server is not reachable
+      reconnectTimeOut = 60000; // wait 60s until next connection try
+    }
+    // delay(2000);
   }
 
-  if ((millis() > timerTicker2 + 10000) && tryReconnect) {
+  if ((millis() > timerTicker2 + reconnectTimeOut) && tryReconnect) {
     tryReconnect = false;
     // force a restart, if there is a problem somewhere, while we dont sent data after 60s
     pClient->disconnect();
@@ -442,30 +561,27 @@ void loop() {
 
       actualTimeStamp = getClockTime();
       if (callData == "getLevels") {
-        if (checkWiFiConnection()) {
+          checkWiFiConnection(); 
           responseData = "getLevels";
           callData = "";
           Serial.print("Request Level and Voltage Information: ");
           pRemoteWriteCharacteristic->writeValue(commands[0], sizeof(commands[0]));
-        }
       }
 
       if (callData == "getCellVolts") {
-        if (checkWiFiConnection()) {
+          checkWiFiConnection(); 
           responseData = "getCellVolts";
           callData = "";
           Serial.print("Request CellVolts Information: ");
           pRemoteWriteCharacteristic->writeValue(commands[1], sizeof(commands[1]));
-        }
       }
 
       if (callData == "getTemperatures") {
-        if (checkWiFiConnection()) { 
+          checkWiFiConnection(); 
           responseData = "getTemperatures";
           callData = "";
           Serial.print("Request Temperature Information: ");
           pRemoteWriteCharacteristic->writeValue(commands[2], sizeof(commands[2]));
-        }
       }
 
       if (callData == "connectToAnotherHost") {
@@ -486,7 +602,85 @@ void loop() {
     }
   }
   
+  displayMenu();
 } // End of loop
+
+void displayMenu() {
+if ((millis() > timerTickerDisplay + duration)) {
+    /* Get new sensor events with the readings */
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    float DHThumi = dht.readHumidity();
+    float DHTtemp = dht.readTemperature();
+    float DHTheatindex = dht.computeHeatIndex(DHTtemp, DHThumi, false);
+
+    /* Print out the values */
+    Serial.print("Acceleration X: ");
+    Serial.print(a.acceleration.x);
+    Serial.print(", Z: ");
+    Serial.print(a.acceleration.z);
+    Serial.println(" m/s^2");
+
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    
+    if (button1.numberKeyPresses == 0) {
+      display.setTextSize(1);
+      // display.println("Gyro");
+
+      display.println("FRONT");
+      display.setCursor(90, 0);
+      display.println("BACK");
+
+      const int pixelFY0 = 17-constrain((a.acceleration.z*3),-5,+5);
+      const int pixelFY1 = 17+constrain((a.acceleration.z*3),-5,+5);
+      display.drawLine(5, pixelFY0, display.width()-5, pixelFY1, SSD1306_WHITE);
+      
+      display.setCursor(0, 30);
+      display.println("LEFT");
+      display.setCursor(90, 30);
+      display.println("DRIVER");
+
+      const int pixelLY0 = 50-constrain((a.acceleration.x*3),-5,+5);
+      const int pixelLY1 = 50+constrain((a.acceleration.x*3),-5,+5);
+      display.drawLine(5, pixelLY0, display.width()-5, pixelLY1, SSD1306_WHITE);
+      
+      display.setTextSize(2);
+      // display.println(a.acceleration.x);
+      // display.println(a.acceleration.y);
+      // display.println(a.acceleration.z);
+
+      display.display();
+    }
+
+    if (button1.numberKeyPresses == 1) {
+      display.setTextSize(1);
+      display.println("Temperatur");
+      display.setTextSize(2);
+      display.print(DHThumi);
+      display.println(" %");
+      display.print(DHTtemp-2);
+      display.println(" C");
+    }
+
+    if (button1.numberKeyPresses == 2) {
+      display.setTextSize(1);
+      display.println("Batterie");
+      display.setTextSize(2);
+      display.print(RENOGYpower);
+      display.println(" W");
+      display.print(RENOGYchargeLevel);
+      display.println(" %");
+      display.print(RENOGYtemperature);
+      display.println(" C");
+    }
+
+    display.display(); 
+    duration = 500;
+    timerTickerDisplay = millis();
+  }
+}
 
 void switchDdeviceAddressesNumber() {
   if ( deviceAddressesNumber >= (DEVICEAMOUNT-1)) {
@@ -499,9 +693,12 @@ void switchDdeviceAddressesNumber() {
 // check for wifi and mqtt connection, true if connectes
 // restart device, if connection is gone
 boolean checkWiFiConnection() {
+  wifiExist = false;
+  MQTTexist = false;
   // connected = false;
   if ( checkWiFi()) {
     Serial.println("Wifi connection still exist.");
+    wifiExist = true;
     // in case mqtt connection is lost, restart device
     if (!espMQTT.isConnected()) {
       delay(10000);
@@ -513,31 +710,33 @@ boolean checkWiFiConnection() {
         ESP.restart(); 
       } else {
         return true;
-
+        MQTTexist = true;
       }
 
     }
 
   } else {
-    Serial.println("Wifi Connection lost, restart system");
-    ESP.restart();
+    // Serial.println("Wifi Connection lost, restart system");
+    // ESP.restart();
     return false;
   }
 }
 
 void sendMqttData() {
-  Serial.println("Send MQTT data...");
-  mqttSend("/renogy/sensor/renogy_last_update", actualTimeStamp);
-  mqttSend("/renogy/sensor/renogy_current", String(RENOGYcurrent));
-  mqttSend("/renogy/sensor/renogy_power", RENOGYpower);
-  mqttSend("/renogy/sensor/renogy_voltage", String(RENOGYvoltage));
-  mqttSend("/renogy/sensor/renogy_chargelevel", String(RENOGYchargeLevel));
-  mqttSend("/renogy/sensor/renogy_capacity", String(RENOGYcapacity));
-  mqttSend("/renogy/sensor/renogy_temperature", String(RENOGYtemperature));
-  mqttSend("/renogy/sensor/renogy_timer", String(RENOGYtimer));
-  mqttSend("/renogy/sensor/renogy_deviceaddressesnumber", String(deviceAddressesNumber));
+  if (MQTTexist) {
+    Serial.println("Send MQTT data...");
+    mqttSend("/renogy/sensor/renogy_last_update", actualTimeStamp);
+    mqttSend("/renogy/sensor/renogy_current", String(RENOGYcurrent));
+    mqttSend("/renogy/sensor/renogy_power", RENOGYpower);
+    mqttSend("/renogy/sensor/renogy_voltage", String(RENOGYvoltage));
+    mqttSend("/renogy/sensor/renogy_chargelevel", String(RENOGYchargeLevel));
+    mqttSend("/renogy/sensor/renogy_capacity", String(RENOGYcapacity));
+    mqttSend("/renogy/sensor/renogy_temperature", String(RENOGYtemperature));
+    mqttSend("/renogy/sensor/renogy_timer", String(RENOGYtimer));
+    mqttSend("/renogy/sensor/renogy_deviceaddressesnumber", String(deviceAddressesNumber));
 
-  mqttSend("/renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
-  mqttSend("/renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
-  Serial.println("Mqtt data was send, return...");
+    mqttSend("/renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
+    mqttSend("/renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
+    Serial.println("Mqtt data was send, return...");
+  }
 }
