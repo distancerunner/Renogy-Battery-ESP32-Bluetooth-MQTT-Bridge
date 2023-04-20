@@ -34,6 +34,14 @@ Button button1 = {19, 2, false};
 unsigned long button_time = 0;  
 unsigned long last_button_time = 0;
 
+const unsigned char wifiIcon [] PROGMEM = {
+ 0x00, 0xff, 0x00, 0x7e, 0x00, 0x18, 0x00, 0x00
+   };
+
+const unsigned char mqttIcon [] PROGMEM = {
+  0x00, 0x63, 0x77, 0x5D, 0x49, 0x41, 0x41, 0x00
+   };
+
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
@@ -60,7 +68,10 @@ String RENOGYchargeLevel="0";
 String RENOGYcapacity="0";
 String RENOGYtemperature="0";
 String RENOGYtimer="00:00";
+String menuItem="----";
 String wifiSSIDValue="noSSID";
+String wifiSSID="noSSID";
+String wifiIP="noSSID";
 String actualTimeStamp="00:00:00";
 uint8_t firstRun = 1;
 int flexiblePollingSpeed = 20000;
@@ -71,6 +82,7 @@ boolean timerIsRunning = false;
 boolean wifiExist = false;
 boolean MQTTexist = false;
 
+static String btActualStatus = "BT unf";
 static boolean issueWithBT = false;
 static boolean tryReconnect = false;
 static boolean doConnect = false;
@@ -94,6 +106,8 @@ BLEClient* pClient;
 
 #define DEVICEAMOUNT 2
 
+TaskHandle_t Task1;
+
 // Address of my BT battery devices
 static const char* deviceAddresses[DEVICEAMOUNT] = {
   "60:98:66:ed:cb:8b",
@@ -116,7 +130,7 @@ void IRAM_ATTR myInterrupt() {
   button_time = millis();
   if (button_time - last_button_time > 250)
   {
-    if (button1.numberKeyPresses < 2) {
+    if (button1.numberKeyPresses < 3) {
       button1.numberKeyPresses++;
     } else {
       button1.numberKeyPresses=0;
@@ -332,6 +346,7 @@ bool connectToServer() {
   issueWithBT = true;
   delay(700);
   if (!pClient->isConnected()) {
+    btActualStatus = "BT err";
     pClient->disconnect();
     return false;
   }
@@ -342,6 +357,7 @@ bool connectToServer() {
   if (pRemoteWriteService == nullptr) {
     Serial.print("Failed to find our service UUID: ");
     Serial.println(serviceWriteUUID.toString().c_str());
+    btActualStatus = "BT err";
     pClient->disconnect();
     return false;
   }
@@ -350,6 +366,7 @@ bool connectToServer() {
   if (pRemoteReadService == nullptr) {
     Serial.print("Failed to find our service UUID: ");
     Serial.println(serviceReadUUID.toString().c_str());
+    btActualStatus = "BT err";
     pClient->disconnect();
     return false;
   }
@@ -359,6 +376,7 @@ bool connectToServer() {
   if (pRemoteWriteCharacteristic == nullptr) {
     Serial.print(F("Failed to find our characteristic UUID: "));
     Serial.println(WRITE_UUID.toString().c_str());
+    btActualStatus = "BT err";
     pClient->disconnect();
     return false;
   }
@@ -368,6 +386,7 @@ bool connectToServer() {
   if (pRemoteNotifyCharacteristic == nullptr) {
     Serial.print(F("Failed to find our characteristic UUID: "));
     Serial.println(NOTIFY_UUID.toString().c_str());
+    btActualStatus = "BT err";
     pClient->disconnect();
     return false;
   }
@@ -381,6 +400,7 @@ bool connectToServer() {
   // BLEDevice::getScan()->clearResults();
   connected = true;
   issueWithBT = false;
+  btActualStatus = "BT run";
   flexiblePollingSpeed = 6000; // next call for data in 2s
   return true;
 }
@@ -390,11 +410,7 @@ void setupDeviceAndConnect() {
   connected = false;
   doScan = true;
 
-  display.setTextSize(1);
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.println("Connecting to BLE Device...");
-  display.display();
+  btActualStatus = "BT ct...";
   delay(1000);
 
   BLEDevice::init("client");
@@ -441,31 +457,41 @@ void setup() {
   display.println("Scan for WIFI...");
   display.display();
 
+  xTaskCreatePinnedToCore(
+    displayMenu,   /* Task function. */
+    "Task1",     /* name of task. */
+    10000,       /* Stack size of task */
+    NULL,        /* parameter of the task */
+    1,           /* priority of the task */
+    &Task1,      /* Task handle to keep track of created task */
+    0);          /* pin task to core 0 */                  
+  delay(500);
+  btActualStatus = "Wifi ct";
   if (startWiFiMulti()) {
     Serial.println("Wifi connected make next step...");
     display.println("Wifi connected make next step...");
     wifiExist = true;
-    Serial.println();  
+    Serial.println();
 
-    display.println("Start MQTT...");
-    display.display();
+    btActualStatus = "MQTT ct";
 
     setClock();
     if ( startMQTT()) {
-      wifiSSIDValue = WiFi.SSID();
-      wifiSSIDValue = wifiSSIDValue + " " + WiFi.localIP().toString();
-      Serial.println(WiFi.localIP());
-      delay(1000);
-      setupDeviceAndConnect();
-      MQTTexist = true;
       display.println("MQTT connected make next step...");
+      btActualStatus = "MQTT suc";
+      MQTTexist = true;
+      startupDeviceAfterConnect();
       return;
     } else {
+      btActualStatus = "MQTT err";
+      startupDeviceAfterConnect();
       return;
     }
 
   } else { 
-    return; 
+    btActualStatus = "WIFI err";
+    startupDeviceAfterConnect();
+    return;
   }
 
   Serial.println("");
@@ -474,6 +500,17 @@ void setup() {
   delay(30000);
   ESP.restart();
 } // End of setup.
+
+void startupDeviceAfterConnect() {
+  if (wifiExist) {
+    wifiSSID = WiFi.SSID();
+    wifiIP = WiFi.localIP().toString();
+    wifiSSIDValue = wifiSSID + " " + wifiIP;
+    Serial.println(WiFi.localIP());
+  }
+  delay(1000);
+  setupDeviceAndConnect();
+}
 
 
 // This is the Arduino main loop function.
@@ -523,7 +560,7 @@ void loop() {
       // in case, the BT server is not reachable
       reconnectTimeOut = 60000; // wait 60s until next connection try
     }
-    // delay(2000);
+    delay(2000);
   }
 
   if ((millis() > timerTicker2 + reconnectTimeOut) && tryReconnect) {
@@ -556,6 +593,7 @@ void loop() {
         {0x30, 0x03, 0x13, 0x88, 0x00, 0x11, 0x05, 0x49}, // Cell volts
         {0x30, 0x03, 0x13, 0x99, 0x00, 0x05, 0x55, 0x43}, // Temperatures 
       };
+      btActualStatus = "BT call";
       // String newValue = "Time since boot: " + String(millis()/1000);
       Serial.println("Send new characteristic value:");      
 
@@ -602,85 +640,120 @@ void loop() {
     }
   }
   
-  displayMenu();
+  // displayMenu();
 } // End of loop
 
-void displayMenu() {
-if ((millis() > timerTickerDisplay + duration)) {
-    /* Get new sensor events with the readings */
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
+void displayMenu( void * pvParameters ){
+  for(;;){
 
-    float DHThumi = dht.readHumidity();
-    float DHTtemp = dht.readTemperature();
-    float DHTheatindex = dht.computeHeatIndex(DHTtemp, DHThumi, false);
+  if ((millis() > timerTickerDisplay + duration)) {
+      /* Get new sensor events with the readings */
+      sensors_event_t a, g, temp;
+      mpu.getEvent(&a, &g, &temp);
 
-    /* Print out the values */
-    Serial.print("Acceleration X: ");
-    Serial.print(a.acceleration.x);
-    Serial.print(", Z: ");
-    Serial.print(a.acceleration.z);
-    Serial.println(" m/s^2");
+      float DHThumi = dht.readHumidity();
+      float DHTtemp = dht.readTemperature();
+      float DHTheatindex = dht.computeHeatIndex(DHTtemp, DHThumi, false);
+      display.clearDisplay();
 
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    
-    if (button1.numberKeyPresses == 0) {
+      if (wifiExist) {
+        display.drawBitmap(60, 55, wifiIcon , 8, 8, WHITE);
+      }
+      if (MQTTexist) {
+        display.drawBitmap(70, 55, mqttIcon , 8, 8, WHITE);
+      }
       display.setTextSize(1);
-      // display.println("Gyro");
+      display.setCursor(0, 55);
+      display.print(menuItem);
 
-      display.println("FRONT");
-      display.setCursor(90, 0);
-      display.println("BACK");
+      display.setCursor(85, 55);
+      display.print(btActualStatus);
 
-      const int pixelFY0 = 17-constrain((a.acceleration.z*3),-5,+5);
-      const int pixelFY1 = 17+constrain((a.acceleration.z*3),-5,+5);
-      display.drawLine(5, pixelFY0, display.width()-5, pixelFY1, SSD1306_WHITE);
-      
-      display.setCursor(0, 30);
-      display.println("LEFT");
-      display.setCursor(90, 30);
-      display.println("DRIVER");
+      display.setCursor(0, 0);
+     
+      if (button1.numberKeyPresses == 0) {
+        menuItem="O---";
 
-      const int pixelLY0 = 50-constrain((a.acceleration.x*3),-5,+5);
-      const int pixelLY1 = 50+constrain((a.acceleration.x*3),-5,+5);
-      display.drawLine(5, pixelLY0, display.width()-5, pixelLY1, SSD1306_WHITE);
-      
-      display.setTextSize(2);
-      // display.println(a.acceleration.x);
-      // display.println(a.acceleration.y);
-      // display.println(a.acceleration.z);
+        display.println("FRONT");
+        display.setCursor(90, 0);
+        display.println("BACK");
 
-      display.display();
-    }
+        const int pixelFY0 = 17-constrain((a.acceleration.z*3),-5,+5);
+        const int pixelFY1 = 17+constrain((a.acceleration.z*3),-5,+5);
+        display.drawLine(5, pixelFY0, display.width()-5, pixelFY1, SSD1306_WHITE);
+        
+        display.setCursor(0, 30);
+        display.println("LEFT");
+        display.setCursor(90, 30);
+        display.println("DRIVER");
 
-    if (button1.numberKeyPresses == 1) {
-      display.setTextSize(1);
-      display.println("Temperatur");
-      display.setTextSize(2);
-      display.print(DHThumi);
-      display.println(" %");
-      display.print(DHTtemp-2);
-      display.println(" C");
-    }
+        const int pixelLY0 = 50-constrain((a.acceleration.x*3),-5,+5);
+        const int pixelLY1 = 50+constrain((a.acceleration.x*3),-5,+5);
+        display.drawLine(5, pixelLY0, display.width()-5, pixelLY1, SSD1306_WHITE);
+      }
 
-    if (button1.numberKeyPresses == 2) {
-      display.setTextSize(1);
-      display.println("Batterie");
-      display.setTextSize(2);
-      display.print(RENOGYpower);
-      display.println(" W");
-      display.print(RENOGYchargeLevel);
-      display.println(" %");
-      display.print(RENOGYtemperature);
-      display.println(" C");
-    }
+      if (button1.numberKeyPresses == 1) {
+        menuItem="-O--";
 
-    display.display(); 
-    duration = 500;
-    timerTickerDisplay = millis();
+        display.println("Thermometer");
+        display.setTextSize(2);
+        display.setCursor(0, 10);
+        display.print(String(DHTtemp).substring(0,String(DHTtemp).indexOf(".")));
+        display.print((char)247);
+        display.print("C");
+        display.setCursor(70, 10);
+        display.print(String(DHThumi).substring(0,String(DHThumi).indexOf(".")));
+        display.print("%");
+
+        display.setCursor(0, 30);
+        display.print(RENOGYtimer);
+        display.print(" min");
+      }
+
+      if (button1.numberKeyPresses == 2) {
+        menuItem="--O-";
+
+        display.println("Batterie");
+        display.setTextSize(2);
+        // row 1
+        display.setCursor(0, 10);
+        display.print(String(RENOGYchargeLevel).substring(0,String(RENOGYchargeLevel).indexOf(".")));
+        display.print("%");
+        display.setCursor(60, 10);
+        display.print(String(RENOGYcurrent).substring(0,String(RENOGYcurrent).indexOf(".")));
+        display.print("A");
+        // row 2
+        display.setCursor(0, 30);
+        display.print(RENOGYvoltage);
+        display.println("V");
+        display.setCursor(60, 30);
+        display.print(String(RENOGYpower).substring(0,String(RENOGYpower).indexOf(".")));
+        display.print("W");
+      }
+
+      if (button1.numberKeyPresses == 3) {
+        menuItem="---O";
+
+        display.println("Info");
+        // row 1
+        display.setCursor(0, 10);
+        display.println(actualTimeStamp);
+        display.println(wifiSSID);
+        display.println(wifiIP);
+        display.print(String(deviceAddressesNumber));
+        display.print("/");
+        display.println(deviceAddresses[deviceAddressesNumber]);
+      }
+
+      display.display(); 
+      duration = 200;
+      timerTickerDisplay = millis();
+  }
+
+  vTaskDelay(5);
   }
 }
+
 
 void switchDdeviceAddressesNumber() {
   if ( deviceAddressesNumber >= (DEVICEAMOUNT-1)) {

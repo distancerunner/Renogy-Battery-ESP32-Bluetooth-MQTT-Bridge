@@ -126,5 +126,6 @@ boolean startMQTT() {
         delay(2000);
       }
     }
+    Serial.println("error connecting mqtt host...");
     return false;
 }
