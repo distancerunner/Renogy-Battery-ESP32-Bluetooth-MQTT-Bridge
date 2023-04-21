@@ -123,8 +123,22 @@ static int16_t power[DEVICEAMOUNT] = {
 uint8_t deviceAddressesNumber=0;
 
 int mqtt_server_count = sizeof(mqtt_server) / sizeof(mqtt_server[0]);
-//Address of the peripheral device. Address will be found during scanning...
-// static BLE pServerAddress;
+
+SemaphoreHandle_t i2cSemaphore;
+void createSemaphore(){
+    i2cSemaphore = xSemaphoreCreateMutex();
+    xSemaphoreGive( ( i2cSemaphore) );
+}
+
+// Lock the variable indefinietly. ( wait for it to be accessible )
+void lockVariable(){
+    xSemaphoreTake(i2cSemaphore, portMAX_DELAY);
+}
+
+// give back the semaphore.
+void unlockVariable(){
+    xSemaphoreGive(i2cSemaphore);
+}
 
 void IRAM_ATTR myInterrupt() {
   button_time = millis();
@@ -458,14 +472,25 @@ void setup() {
   display.display();
 
   xTaskCreatePinnedToCore(
-    displayMenu,   /* Task function. */
+    displayMenuCore1,   /* Task function. */
     "Task1",     /* name of task. */
     10000,       /* Stack size of task */
     NULL,        /* parameter of the task */
-    1,           /* priority of the task */
+    2,           /* priority of the task */
     &Task1,      /* Task handle to keep track of created task */
-    0);          /* pin task to core 0 */                  
+    1);          /* pin task to core 0 */
   delay(500);
+
+  xTaskCreatePinnedToCore(
+    btLoopCoreZero,   /* Task function. */
+    "Task2",     /* name of task. */
+    10000,       /* Stack size of task */
+    NULL,        /* parameter of the task */
+    1,           /* priority of the task */
+    &Task2,      /* Task handle to keep track of created task */
+    0);          /* pin task to core 1 */
+  delay(500);
+
   btActualStatus = "Wifi ct";
   if (startWiFiMulti()) {
     Serial.println("Wifi connected make next step...");
@@ -512,141 +537,148 @@ void startupDeviceAfterConnect() {
   setupDeviceAndConnect();
 }
 
+void loop() {
+}
+
 
 // This is the Arduino main loop function.
-void loop() {
-
-  if(Serial.available()){
-    char charE = Serial.read();
-    if(charE == 's') {
-      RENOGYcurrentDebug="-10";
-      RENOGYvoltageDebug="13.0";
-    }
-
-    if(charE == 'e') {
-      RENOGYcurrentDebug="0";
-      RENOGYvoltageDebug="0";
-    }
-
-  }
-  // If the flag "doConnect" is true then we have scanned for and found the desired
-  // BLE Server with which we wish to connect.  Now we connect to it.  Once we are 
-  // connected we set the connected flag to be true.
-  if (doConnect == true) {
-    if (connectToServer()) {
-      Serial.println("We are now connected to the BLE Server.");
-      Serial.println("################################################");
-    } else {
-      Serial.println("We have failed to connect to the server; there is nothin more we will do.");
-      tryReconnect = true;
-    }
-    doConnect = false;
-  }
-
-  if (millis() > timerTickerForWhatchDog + 300000*2) {
-      // force a restart, if there is a problem somewhere, while we dont sent data after 60s
-      Serial.println("");
-      Serial.println("Timeout exceeded, ready for reset in 15s...");
-      getClockTime();
-      delay(15000);
-      ESP.restart();
-  }
-
-  if (tryReconnect) {
-    Serial.println("failed during connection... wait 10s and try again.");
-    reconnectTimeOut = 10000; // wait 60s until next connection try
-
-    if (issueWithBT) {
-      // in case, the BT server is not reachable
-      reconnectTimeOut = 60000; // wait 60s until next connection try
-    }
-    delay(2000);
-  }
-
-  if ((millis() > timerTicker2 + reconnectTimeOut) && tryReconnect) {
-    tryReconnect = false;
-    // force a restart, if there is a problem somewhere, while we dont sent data after 60s
-    pClient->disconnect();
-    responseData = "";
-    callData = "";
-    Serial.println("");
-    Serial.println("re-connect to host...");
-    switchDdeviceAddressesNumber();
-    setupDeviceAndConnect();
-  }
-
-  if ((millis() > timerTickerForEggTimer + 10000) && timerIsRunning) {
-    Serial.println("Eggtimer is running. Send new timer data a bit more often.");
-    timerTickerForEggTimer = millis();
-    updateEggTimer();
-    sendMqttData();
-  }
-
-  if (connected) {
-    espUpdater();
-
-    if (millis() > timerTicker2 + flexiblePollingSpeed) {
-    // if (millis() > timerTicker2 + 10000) {
-      // If we are connected to a peer BLE Server, update the characteristic
-      byte commands[3][8] = {
-        {0x30, 0x03, 0x13, 0xB2, 0x00, 0x06, 0x65, 0x4A}, // Levels
-        {0x30, 0x03, 0x13, 0x88, 0x00, 0x11, 0x05, 0x49}, // Cell volts
-        {0x30, 0x03, 0x13, 0x99, 0x00, 0x05, 0x55, 0x43}, // Temperatures 
-      };
-      btActualStatus = "BT call";
-      // String newValue = "Time since boot: " + String(millis()/1000);
-      Serial.println("Send new characteristic value:");      
-
-      actualTimeStamp = getClockTime();
-      if (callData == "getLevels") {
-          checkWiFiConnection(); 
-          responseData = "getLevels";
-          callData = "";
-          Serial.print("Request Level and Voltage Information: ");
-          pRemoteWriteCharacteristic->writeValue(commands[0], sizeof(commands[0]));
+void btLoopCoreZero( void * pvParameters ) {
+  for(;;){
+    lockVariable();
+    if(Serial.available()){
+      char charE = Serial.read();
+      if(charE == 's') {
+        RENOGYcurrentDebug="-10";
+        RENOGYvoltageDebug="13.0";
       }
 
-      if (callData == "getCellVolts") {
-          checkWiFiConnection(); 
-          responseData = "getCellVolts";
-          callData = "";
-          Serial.print("Request CellVolts Information: ");
-          pRemoteWriteCharacteristic->writeValue(commands[1], sizeof(commands[1]));
+      if(charE == 'e') {
+        RENOGYcurrentDebug="0";
+        RENOGYvoltageDebug="0";
       }
 
-      if (callData == "getTemperatures") {
-          checkWiFiConnection(); 
-          responseData = "getTemperatures";
-          callData = "";
-          Serial.print("Request Temperature Information: ");
-          pRemoteWriteCharacteristic->writeValue(commands[2], sizeof(commands[2]));
+    }
+    // If the flag "doConnect" is true then we have scanned for and found the desired
+    // BLE Server with which we wish to connect.  Now we connect to it.  Once we are 
+    // connected we set the connected flag to be true.
+    if (doConnect == true) {
+      if (connectToServer()) {
+        Serial.println("We are now connected to the BLE Server.");
+        Serial.println("################################################");
+      } else {
+        Serial.println("We have failed to connect to the server; there is nothin more we will do.");
+        tryReconnect = true;
       }
+      doConnect = false;
+    }
 
-      if (callData == "connectToAnotherHost") {
-        // if the last device was called, return to the first one
-        switchDdeviceAddressesNumber();
-
-        pClient->disconnect();
-        responseData = "";
-        callData = "";
+    if (millis() > timerTickerForWhatchDog + 300000*2) {
+        // force a restart, if there is a problem somewhere, while we dont sent data after 60s
         Serial.println("");
-        Serial.println("connect To Another Host...");
-
-        setupDeviceAndConnect();
-      }
-
-      timerTicker2 = millis();
-      timerTickerForWhatchDog = millis();
+        Serial.println("Timeout exceeded, ready for reset in 15s...");
+        getClockTime();
+        delay(15000);
+        ESP.restart();
     }
-  }
-  
-  // displayMenu();
-} // End of loop
 
-void displayMenu( void * pvParameters ){
+    if (tryReconnect) {
+      Serial.println("failed during connection... wait 10s and try again.");
+      reconnectTimeOut = 10000; // wait 60s until next connection try
+
+      if (issueWithBT) {
+        // in case, the BT server is not reachable
+        reconnectTimeOut = 60000; // wait 60s until next connection try
+      }
+      delay(2000);
+    }
+
+    if ((millis() > timerTicker2 + reconnectTimeOut) && tryReconnect) {
+      tryReconnect = false;
+      // force a restart, if there is a problem somewhere, while we dont sent data after 60s
+      pClient->disconnect();
+      responseData = "";
+      callData = "";
+      Serial.println("");
+      Serial.println("re-connect to host...");
+      switchDdeviceAddressesNumber();
+      setupDeviceAndConnect();
+    }
+
+    if ((millis() > timerTickerForEggTimer + 10000) && timerIsRunning) {
+      Serial.println("Eggtimer is running. Send new timer data a bit more often.");
+      timerTickerForEggTimer = millis();
+      updateEggTimer();
+      sendMqttData();
+    }
+
+    if (connected) {
+      espUpdater();
+
+      if (millis() > timerTicker2 + flexiblePollingSpeed) {
+      // if (millis() > timerTicker2 + 10000) {
+        // If we are connected to a peer BLE Server, update the characteristic
+        byte commands[3][8] = {
+          {0x30, 0x03, 0x13, 0xB2, 0x00, 0x06, 0x65, 0x4A}, // Levels
+          {0x30, 0x03, 0x13, 0x88, 0x00, 0x11, 0x05, 0x49}, // Cell volts
+          {0x30, 0x03, 0x13, 0x99, 0x00, 0x05, 0x55, 0x43}, // Temperatures 
+        };
+        btActualStatus = "BT call";
+        // String newValue = "Time since boot: " + String(millis()/1000);
+        Serial.println("Send new characteristic value:");      
+
+        actualTimeStamp = getClockTime();
+        if (callData == "getLevels") {
+            checkWiFiConnection(); 
+            responseData = "getLevels";
+            callData = "";
+            Serial.print("Request Level and Voltage Information: ");
+            pRemoteWriteCharacteristic->writeValue(commands[0], sizeof(commands[0]));
+        }
+
+        if (callData == "getCellVolts") {
+            checkWiFiConnection(); 
+            responseData = "getCellVolts";
+            callData = "";
+            Serial.print("Request CellVolts Information: ");
+            pRemoteWriteCharacteristic->writeValue(commands[1], sizeof(commands[1]));
+        }
+
+        if (callData == "getTemperatures") {
+            checkWiFiConnection(); 
+            responseData = "getTemperatures";
+            callData = "";
+            Serial.print("Request Temperature Information: ");
+            pRemoteWriteCharacteristic->writeValue(commands[2], sizeof(commands[2]));
+        }
+
+        if (callData == "connectToAnotherHost") {
+          // if the last device was called, return to the first one
+          switchDdeviceAddressesNumber();
+
+          pClient->disconnect();
+          responseData = "";
+          callData = "";
+          Serial.println("");
+          Serial.println("connect To Another Host...");
+
+          setupDeviceAndConnect();
+        }
+
+        timerTicker2 = millis();
+        timerTickerForWhatchDog = millis();
+      }
+    }
+  
+    unlockVariable();
+    vTaskDelay(100);
+  } // End loop of core0
+} 
+
+void displayMenuCore1( void * pvParameters ){
   for(;;){
 
   if ((millis() > timerTickerDisplay + duration)) {
+      lockVariable();
       /* Get new sensor events with the readings */
       sensors_event_t a, g, temp;
       mpu.getEvent(&a, &g, &temp);
@@ -748,9 +780,10 @@ void displayMenu( void * pvParameters ){
       display.display(); 
       duration = 200;
       timerTickerDisplay = millis();
+      unlockVariable();
   }
 
-  vTaskDelay(5);
+  vTaskDelay(100);
   }
 }
 
