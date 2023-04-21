@@ -75,7 +75,7 @@ String wifiIP="noSSID";
 String actualTimeStamp="00:00:00";
 uint8_t firstRun = 1;
 int flexiblePollingSpeed = 20000;
-int reconnectTimeOut = 10000;
+int reconnectTimeOut = 0;
 uint16_t timerCounterStart = 0;
 uint16_t timerCounterActual = 0;
 boolean timerIsRunning = false;
@@ -125,6 +125,22 @@ uint8_t deviceAddressesNumber=0;
 int mqtt_server_count = sizeof(mqtt_server) / sizeof(mqtt_server[0]);
 //Address of the peripheral device. Address will be found during scanning...
 // static BLE pServerAddress;
+
+SemaphoreHandle_t i2cSemaphore;
+void createSemaphore(){
+    i2cSemaphore = xSemaphoreCreateMutex();
+    xSemaphoreGive( ( i2cSemaphore) );
+}
+
+// Lock the variable indefinietly. ( wait for it to be accessible )
+void lockVariable(){
+    xSemaphoreTake(i2cSemaphore, portMAX_DELAY);
+}
+
+// give back the semaphore.
+void unlockVariable(){
+    xSemaphoreGive(i2cSemaphore);
+}
 
 void IRAM_ATTR myInterrupt() {
   button_time = millis();
@@ -181,12 +197,12 @@ static void notifyCallback(
       // Serial.println(RENOGYcapacity);
 
       // for debug, no hardware is needed: s for start, e for end
-      if (RENOGYcurrentDebug!="0") {
-        RENOGYvoltage = RENOGYvoltageDebug;
-        RENOGYcurrent = RENOGYcurrentDebug;
-      }
+      // if (RENOGYcurrentDebug!="0") {
+      //   RENOGYvoltage = RENOGYvoltageDebug;
+      //   RENOGYcurrent = RENOGYcurrentDebug;
+      // }
 
-      compareValuesForTimer();
+      // compareValuesForTimer(); // crash on multicore usage
       updateEggTimer();
 
       callData="getTemperatures";
@@ -420,7 +436,7 @@ void setupDeviceAndConnect() {
 void setup() {
   Serial.begin(19200);
   Serial.println("Starting Arduino BLE Client application...");
-
+  createSemaphore();
   display.setRotation(2);
   dht.begin();
 
@@ -507,6 +523,8 @@ void startupDeviceAfterConnect() {
     wifiIP = WiFi.localIP().toString();
     wifiSSIDValue = wifiSSID + " " + wifiIP;
     Serial.println(WiFi.localIP());
+    Serial.printf("Arduino Stack was set to %d bytes", getArduinoLoopTaskStackSize());
+    Serial.println("################################################");
   }
   delay(1000);
   setupDeviceAndConnect();
@@ -515,7 +533,7 @@ void startupDeviceAfterConnect() {
 
 // This is the Arduino main loop function.
 void loop() {
-
+  lockVariable();
   if(Serial.available()){
     char charE = Serial.read();
     if(charE == 's') {
@@ -536,6 +554,7 @@ void loop() {
     if (connectToServer()) {
       Serial.println("We are now connected to the BLE Server.");
       Serial.println("################################################");
+      actualTimeStamp = getClockTime();
     } else {
       Serial.println("We have failed to connect to the server; there is nothin more we will do.");
       tryReconnect = true;
@@ -552,15 +571,19 @@ void loop() {
       ESP.restart();
   }
 
-  if (tryReconnect) {
-    Serial.println("failed during connection... wait 10s and try again.");
+  if (tryReconnect && reconnectTimeOut==0) {
+    Serial.println("failed during connection...");
     reconnectTimeOut = 10000; // wait 60s until next connection try
 
     if (issueWithBT) {
       // in case, the BT server is not reachable
-      reconnectTimeOut = 60000; // wait 60s until next connection try
+      reconnectTimeOut = 30000; // wait 60s until next connection try
     }
+    Serial.print("wait ");
+    Serial.print(reconnectTimeOut);
+    Serial.println("ms and try again.");
     delay(2000);
+    timerTicker2 = millis();
   }
 
   if ((millis() > timerTicker2 + reconnectTimeOut) && tryReconnect) {
@@ -571,6 +594,8 @@ void loop() {
     callData = "";
     Serial.println("");
     Serial.println("re-connect to host...");
+    reconnectTimeOut = 0;
+    // RENOGYcurrent="5"; // for testing
     switchDdeviceAddressesNumber();
     setupDeviceAndConnect();
   }
@@ -598,8 +623,9 @@ void loop() {
       Serial.println("Send new characteristic value:");      
 
       actualTimeStamp = getClockTime();
+      checkWiFiConnection();
+
       if (callData == "getLevels") {
-          checkWiFiConnection(); 
           responseData = "getLevels";
           callData = "";
           Serial.print("Request Level and Voltage Information: ");
@@ -607,7 +633,7 @@ void loop() {
       }
 
       if (callData == "getCellVolts") {
-          checkWiFiConnection(); 
+          // checkWiFiConnection(); 
           responseData = "getCellVolts";
           callData = "";
           Serial.print("Request CellVolts Information: ");
@@ -615,7 +641,7 @@ void loop() {
       }
 
       if (callData == "getTemperatures") {
-          checkWiFiConnection(); 
+          // checkWiFiConnection(); 
           responseData = "getTemperatures";
           callData = "";
           Serial.print("Request Temperature Information: ");
@@ -639,13 +665,12 @@ void loop() {
       timerTickerForWhatchDog = millis();
     }
   }
-  
-  // displayMenu();
+  unlockVariable();
 } // End of loop
 
 void displayMenu( void * pvParameters ){
   for(;;){
-
+  // lockVariable();
   if ((millis() > timerTickerDisplay + duration)) {
       /* Get new sensor events with the readings */
       sensors_event_t a, g, temp;
@@ -713,22 +738,35 @@ void displayMenu( void * pvParameters ){
       if (button1.numberKeyPresses == 2) {
         menuItem="--O-";
 
-        display.println("Batterie");
+        display.print("Batterie  ");         
+        display.print(RENOGYvoltage);
+        display.println("V");
+
         display.setTextSize(2);
         // row 1
         display.setCursor(0, 10);
         display.print(String(RENOGYchargeLevel).substring(0,String(RENOGYchargeLevel).indexOf(".")));
+        display.setTextSize(1);
         display.print("%");
+        display.setTextSize(2);
         display.setCursor(60, 10);
-        display.print(String(RENOGYcurrent).substring(0,String(RENOGYcurrent).indexOf(".")));
+        display.print(String(RENOGYcurrent));
+        display.setTextSize(1);
+        // display.print(String(RENOGYcurrent).substring(0,String(RENOGYcurrent).indexOf(".")));
         display.print("A");
         // row 2
+        display.setTextSize(2);
         display.setCursor(0, 30);
-        display.print(RENOGYvoltage);
-        display.println("V");
-        display.setCursor(60, 30);
         display.print(String(RENOGYpower).substring(0,String(RENOGYpower).indexOf(".")));
+        display.setTextSize(1);
         display.print("W");
+        display.setTextSize(2);
+        display.setCursor(60, 30);
+        display.print(String(RENOGYtemperature).substring(0,String(RENOGYtemperature).indexOf(".")));
+        display.setTextSize(1);
+        display.print((char)247);
+        display.print("C");
+        display.setTextSize(2);
       }
 
       if (button1.numberKeyPresses == 3) {
@@ -749,7 +787,7 @@ void displayMenu( void * pvParameters ){
       duration = 200;
       timerTickerDisplay = millis();
   }
-
+  // unlockVariable();
   vTaskDelay(5);
   }
 }
@@ -767,7 +805,7 @@ void switchDdeviceAddressesNumber() {
 // restart device, if connection is gone
 boolean checkWiFiConnection() {
   wifiExist = false;
-  MQTTexist = false;
+  // MQTTexist = false;
   // connected = false;
   if ( checkWiFi()) {
     Serial.println("Wifi connection still exist.");
@@ -779,8 +817,9 @@ boolean checkWiFiConnection() {
       // if ( checkWiFi()) {
       // try to reconnect to mqtt
       if (!startMQTT()) {
-        Serial.println("MQTT Connection lost, restart system");
-        ESP.restart(); 
+        MQTTexist = false;
+        Serial.println("MQTT Connection lost, restart system?");
+        // ESP.restart(); 
       } else {
         return true;
         MQTTexist = true;
