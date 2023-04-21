@@ -107,6 +107,7 @@ BLEClient* pClient;
 #define DEVICEAMOUNT 2
 
 TaskHandle_t Task1;
+TaskHandle_t Task2;
 
 // Address of my BT battery devices
 static const char* deviceAddresses[DEVICEAMOUNT] = {
@@ -470,25 +471,26 @@ void setup() {
   display.setCursor(0, 0);
   display.println("Scan for WIFI...");
   display.display();
+  createSemaphore();
 
   xTaskCreatePinnedToCore(
     displayMenuCore1,   /* Task function. */
     "Task1",     /* name of task. */
     10000,       /* Stack size of task */
     NULL,        /* parameter of the task */
-    2,           /* priority of the task */
+    1,           /* priority of the task */
     &Task1,      /* Task handle to keep track of created task */
-    1);          /* pin task to core 0 */
+    0);          /* pin task to core 0 */
   delay(500);
 
   xTaskCreatePinnedToCore(
     btLoopCoreZero,   /* Task function. */
     "Task2",     /* name of task. */
-    10000,       /* Stack size of task */
+    50000,       /* Stack size of task */
     NULL,        /* parameter of the task */
     1,           /* priority of the task */
     &Task2,      /* Task handle to keep track of created task */
-    0);          /* pin task to core 1 */
+    1);          /* pin task to core 1 */
   delay(500);
 
   btActualStatus = "Wifi ct";
