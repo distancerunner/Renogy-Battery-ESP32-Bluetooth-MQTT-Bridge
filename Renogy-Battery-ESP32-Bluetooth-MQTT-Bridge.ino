@@ -739,21 +739,22 @@ void displayMenu( void * pvParameters ){
         menuItem="--O-";
 
         display.print("Batterie  ");         
-        display.print(RENOGYvoltage);
-        display.println("V");
-
         display.setTextSize(2);
         // row 1
         display.setCursor(0, 10);
         display.print(String(RENOGYchargeLevel).substring(0,String(RENOGYchargeLevel).indexOf(".")));
         display.setTextSize(1);
         display.print("%");
-        display.setTextSize(2);
-        display.setCursor(60, 10);
+
+        display.setCursor(65, 10);
         display.print(String(RENOGYcurrent));
+        display.print("A");
+        display.setCursor(65, 18);
+        display.print(RENOGYvoltage);
+        display.println("V");
+
         display.setTextSize(1);
         // display.print(String(RENOGYcurrent).substring(0,String(RENOGYcurrent).indexOf(".")));
-        display.print("A");
         // row 2
         display.setTextSize(2);
         display.setCursor(0, 30);
@@ -761,7 +762,7 @@ void displayMenu( void * pvParameters ){
         display.setTextSize(1);
         display.print("W");
         display.setTextSize(2);
-        display.setCursor(60, 30);
+        display.setCursor(65, 30);
         display.print(String(RENOGYtemperature).substring(0,String(RENOGYtemperature).indexOf(".")));
         display.setTextSize(1);
         display.print((char)247);
@@ -775,7 +776,7 @@ void displayMenu( void * pvParameters ){
         display.println("Info");
         // row 1
         display.setCursor(0, 10);
-        display.println(actualTimeStamp);
+        // display.println(actualTimeStamp);
         display.println(wifiSSID);
         display.println(wifiIP);
         display.print(String(deviceAddressesNumber));
