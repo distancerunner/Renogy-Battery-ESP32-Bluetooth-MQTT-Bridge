@@ -37,9 +37,32 @@
   state_class: measurement
   device_class: "BATTERY"
 
+- name: "Renogy Dht Humidity"
+  unique_id: "RenogyDhtHumidity"
+  state_topic: "/renogy/sensor/dht_humidity"
+  value_template: "{{ value }}"
+  unit_of_measurement: "%"
+  state_class: measurement
+
 - name: "Renogy Sensor Temperature"
   unique_id: "RenogySensorTemperature"
   state_topic: "/renogy/sensor/renogy_temperature"
+  value_template: "{{ value | float }}"
+  unit_of_measurement: "°C"
+  state_class: measurement
+  device_class: "TEMPERATURE"
+
+- name: "Renogy DHT Temperature"
+  unique_id: "RenogyDhtTemperature"
+  state_topic: "/renogy/sensor/dht_temperature"
+  value_template: "{{ value | float }}"
+  unit_of_measurement: "°C"
+  state_class: measurement
+  device_class: "TEMPERATURE"
+
+- name: "Renogy DHT Hidx Temperature"
+  unique_id: "RenogyDhtHidxTemperature"
+  state_topic: "/renogy/sensor/dht_hidxtemperature"
   value_template: "{{ value | float }}"
   unit_of_measurement: "°C"
   state_class: measurement

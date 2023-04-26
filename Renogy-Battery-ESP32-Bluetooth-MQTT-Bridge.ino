@@ -32,6 +32,7 @@ struct Button {
 Button button1 = {19, 2, false};
 //variables to keep track of the timing of recent interrupts
 unsigned long button_time = 0;  
+unsigned long button_time_longPress = 0;  
 unsigned long last_button_time = 0;
 
 const unsigned char wifiIcon [] PROGMEM = {
@@ -73,6 +74,9 @@ String wifiSSIDValue="noSSID";
 String wifiSSID="noSSID";
 String wifiIP="noSSID";
 String actualTimeStamp="00:00:00";
+float DHThumi;
+float DHTtemp;
+float DHTheatindex;
 uint8_t firstRun = 1;
 int flexiblePollingSpeed = 20000;
 int reconnectTimeOut = 0;
@@ -91,6 +95,7 @@ static boolean doScan = false;
 static uint32_t timerTickerForWhatchDog = millis();
 static uint32_t timerTickerForEggTimer = millis();
 static uint32_t timerTicker2 = millis();
+static uint32_t timerTicker3 = millis();
 
 static uint32_t timerTickerDisplay = millis();
 uint32_t duration = 200;
@@ -144,7 +149,7 @@ void unlockVariable(){
 
 void IRAM_ATTR myInterrupt() {
   button_time = millis();
-  if (button_time - last_button_time > 250)
+  if (button_time - last_button_time > 250 && button_time - last_button_time < 500)
   {
     if (button1.numberKeyPresses < 3) {
       button1.numberKeyPresses++;
@@ -154,7 +159,6 @@ void IRAM_ATTR myInterrupt() {
     duration=0;
     last_button_time = button_time;
   }
-	// button1.pressed = true;
 }
 
 static void notifyCallback(
@@ -197,13 +201,13 @@ static void notifyCallback(
       // Serial.println(RENOGYcapacity);
 
       // for debug, no hardware is needed: s for start, e for end
-      // if (RENOGYcurrentDebug!="0") {
-      //   RENOGYvoltage = RENOGYvoltageDebug;
-      //   RENOGYcurrent = RENOGYcurrentDebug;
-      // }
+      if (RENOGYcurrentDebug!="0") {
+        RENOGYvoltage = RENOGYvoltageDebug;
+        RENOGYcurrent = RENOGYcurrentDebug;
+      }
 
       // compareValuesForTimer(); // crash on multicore usage
-      updateEggTimer();
+      // updateEggTimer();
 
       callData="getTemperatures";
       flexiblePollingSpeed = 2000; // next call for data in 2s
@@ -270,12 +274,18 @@ class MyClientCallback : public BLEClientCallbacks {
   }
 };
 
+void updateDhtTemperature() {
+  DHThumi = dht.readHumidity();
+  DHTtemp = dht.readTemperature();
+  DHTheatindex = dht.computeHeatIndex(DHTtemp, DHThumi, false);
+}
+
 void updateEggTimer() {
   if (timerIsRunning) {
     char buffer[5];
     timerCounterActual = getEpochTime() - timerCounterStart;
-    Serial.println("timerIsRunning: timerCounterActual");
-    Serial.println(timerCounterActual);
+    Serial.println("timerIsRunning:");
+    // Serial.println(timerCounterActual);
     sprintf (buffer, "%02u:%02u", timerCounterActual / 60, timerCounterActual % 60);
     Serial.println(buffer);
     RENOGYtimer = buffer;
@@ -284,12 +294,12 @@ void updateEggTimer() {
 }
 
 void compareValuesForTimer() {
-  Serial.println("compareValuesForTimer");
-  Serial.printf("dVoltage: %f dCurrent: %f Power %f ISRunning: %s", 
-    (RENOGYvoltage.toFloat()), RENOGYcurrent.toFloat(),
-    power[deviceAddressesNumber], timerIsRunning?"true":"false"
-  );
-  Serial.println("");
+  // Serial.println("compareValuesForTimer");
+  // Serial.printf("dVoltage: %f dCurrent: %f Power %f ISRunning: %s", 
+  //   (RENOGYvoltage.toFloat()), RENOGYcurrent.toFloat(),
+  //   power[deviceAddressesNumber], timerIsRunning?"true":"false"
+  // );
+  // Serial.println("");
   Serial.printf("dVoltage: %f dCurrent: %f Power %f ISRunning: %s", 
     ((float)voltage - RENOGYvoltage.toFloat()), abs(current[deviceAddressesNumber] - RENOGYcurrent.toFloat()),
     power[deviceAddressesNumber], timerIsRunning?"true":"false"
@@ -316,6 +326,7 @@ void compareValuesForTimer() {
       if (abs(current[deviceAddressesNumber] - RENOGYcurrent.toFloat()) >= 10) {
         timerCounterStart = getEpochTime();
         timerIsRunning = true;
+        button1.numberKeyPresses = 1;
         
         // for interpolation, set current equal in every device
         for (int i = 0; i < DEVICEAMOUNT; i++){
@@ -334,11 +345,12 @@ void compareValuesForTimer() {
   for (int i = 0; i < DEVICEAMOUNT; i++)
   {
     Serial.print("current:");
-    Serial.println(i);
-    Serial.println(current[i]);
-    Serial.print("power:");
-    Serial.println(i);
-    Serial.println(power[i]);
+    Serial.print(i);
+    Serial.print(current[i]);
+    Serial.print(" power:");
+    Serial.print(i);
+    Serial.print(power[i]);
+    Serial.println("");
     powerTemp += power[i];
   }
   RENOGYpower = String(powerTemp);
@@ -417,7 +429,7 @@ bool connectToServer() {
   connected = true;
   issueWithBT = false;
   btActualStatus = "BT run";
-  flexiblePollingSpeed = 6000; // next call for data in 2s
+  flexiblePollingSpeed = 6000; // next call for data in n seconds
   return true;
 }
 
@@ -523,7 +535,7 @@ void startupDeviceAfterConnect() {
     wifiIP = WiFi.localIP().toString();
     wifiSSIDValue = wifiSSID + " " + wifiIP;
     Serial.println(WiFi.localIP());
-    Serial.printf("Arduino Stack was set to %d bytes", getArduinoLoopTaskStackSize());
+    // Serial.printf("Arduino Stack was set to %d bytes", getArduinoLoopTaskStackSize());
     Serial.println("################################################");
   }
   delay(1000);
@@ -602,13 +614,19 @@ void loop() {
 
   if ((millis() > timerTickerForEggTimer + 10000) && timerIsRunning) {
     Serial.println("Eggtimer is running. Send new timer data a bit more often.");
-    timerTickerForEggTimer = millis();
-    updateEggTimer();
     sendMqttData();
+    timerTickerForEggTimer = millis();
   }
 
   if (connected) {
     espUpdater();
+
+    if (millis() > timerTicker3 + 4000) {
+      compareValuesForTimer(); // crash on multicore usage
+      updateEggTimer();
+      updateDhtTemperature();
+      timerTicker3 = millis();
+    }
 
     if (millis() > timerTicker2 + flexiblePollingSpeed) {
     // if (millis() > timerTicker2 + 10000) {
@@ -676,9 +694,6 @@ void displayMenu( void * pvParameters ){
       sensors_event_t a, g, temp;
       mpu.getEvent(&a, &g, &temp);
 
-      float DHThumi = dht.readHumidity();
-      float DHTtemp = dht.readTemperature();
-      float DHTheatindex = dht.computeHeatIndex(DHTtemp, DHThumi, false);
       display.clearDisplay();
 
       if (wifiExist) {
@@ -845,6 +860,9 @@ void sendMqttData() {
     mqttSend("/renogy/sensor/renogy_chargelevel", String(RENOGYchargeLevel));
     mqttSend("/renogy/sensor/renogy_capacity", String(RENOGYcapacity));
     mqttSend("/renogy/sensor/renogy_temperature", String(RENOGYtemperature));
+    mqttSend("/renogy/sensor/dht_hidxtemperature", String(DHTheatindex));
+    mqttSend("/renogy/sensor/dht_temperature", String(DHTtemp));
+    mqttSend("/renogy/sensor/dht_humidity", String(DHThumi));
     mqttSend("/renogy/sensor/renogy_timer", String(RENOGYtimer));
     mqttSend("/renogy/sensor/renogy_deviceaddressesnumber", String(deviceAddressesNumber));
 
