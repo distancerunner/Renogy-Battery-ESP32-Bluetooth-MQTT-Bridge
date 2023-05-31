@@ -117,7 +117,7 @@ static void notifyCallback(
         RENOGYcurrent = RENOGYcurrentDebug;
       }
 
-      compareValuesForTimer();
+      // compareValuesForTimer();
       updateEggTimer();
 
       callData="getTemperatures";
