@@ -6,6 +6,11 @@
 #include "config.h"
 #include <NimBLEDevice.h>
 #include "wifiBridge.h"
+#include "DHT.h"
+
+#define DHT11PIN 15
+
+DHT dht(DHT11PIN, DHT11);
 
 #define RENOGYHEADERSIZE 3 // drop first 3 bytes of response
 
@@ -29,11 +34,17 @@ String RENOGYtemperature="";
 String RENOGYtimer="00:00";
 String wifiSSIDValue="noSSID";
 String actualTimeStamp="00:00:00";
+float DHThumi;
+float DHTtemp;
+float DHTheatindex;
 uint8_t firstRun = 1;
 int flexiblePollingSpeed = 20000;
 uint16_t timerCounterStart = 0;
 uint16_t timerCounterActual = 0;
 boolean timerIsRunning = false;
+
+static uint32_t timerTickerDisplay = millis();
+uint16_t whatchDogTicks = 0;
 
 static boolean tryReconnect = false;
 static boolean doConnect = false;
@@ -71,6 +82,7 @@ uint8_t deviceAddressesNumber=0;
 int mqtt_server_count = sizeof(mqtt_server) / sizeof(mqtt_server[0]);
 //Address of the peripheral device. Address will be found during scanning...
 // static BLE pServerAddress;
+TaskHandle_t Task1;
 
 static void notifyCallback(
   BLERemoteCharacteristic* pBLERemoteCharacteristic,
@@ -336,6 +348,15 @@ void setupDeviceAndConnect() {
 
 
 void setup() {
+  xTaskCreatePinnedToCore(
+    myWhatchdog,   /* Task function. */
+    "Task1",     /* name of task. */
+    10000,       /* Stack size of task */
+    NULL,        /* parameter of the task */
+    1,           /* priority of the task */
+    &Task1,      /* Task handle to keep track of created task */
+    0);          /* pin task to core 0 */    
+
   Serial.begin(19200);
   Serial.println("Starting Arduino BLE Client application...");
 
@@ -423,6 +444,7 @@ void loop() {
     Serial.println("Eggtimer is running. Send new timer data a bit more often.");
     timerTickerForEggTimer = millis();
     updateEggTimer();
+    updateDhtTemperature();
     sendMqttData();
   }
 
@@ -525,19 +547,50 @@ boolean checkWiFiConnection() {
   }
 }
 
-void sendMqttData() {
-  Serial.println("Send MQTT data...");
-  mqttSend("/renogy/sensor/renogy_last_update", actualTimeStamp);
-  mqttSend("/renogy/sensor/renogy_current", String(RENOGYcurrent));
-  mqttSend("/renogy/sensor/renogy_power", RENOGYpower);
-  mqttSend("/renogy/sensor/renogy_voltage", String(RENOGYvoltage));
-  mqttSend("/renogy/sensor/renogy_chargelevel", String(RENOGYchargeLevel));
-  mqttSend("/renogy/sensor/renogy_capacity", String(RENOGYcapacity));
-  mqttSend("/renogy/sensor/renogy_temperature", String(RENOGYtemperature));
-  mqttSend("/renogy/sensor/renogy_timer", String(RENOGYtimer));
-  mqttSend("/renogy/sensor/renogy_deviceaddressesnumber", String(deviceAddressesNumber));
+void updateDhtTemperature() {
+  DHThumi = dht.readHumidity();
+  DHTtemp = dht.readTemperature();
+  DHTheatindex = dht.computeHeatIndex(DHTtemp, DHThumi, false);
+}
 
-  mqttSend("/renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
-  mqttSend("/renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
-  Serial.println("Mqtt data was send, return...");
+void myWhatchdog( void * pvParameters ){
+  for(;;){
+    // lockVariable();
+    if ((millis() > timerTickerDisplay + 60000)) {
+    // if ((millis() > timerTickerDisplay + 1000)) {
+        
+        whatchDogTicks++; // will increment ticks every minute
+        timerTickerDisplay = millis();
+        Serial.print("whatchDogTicks ");
+        Serial.println(whatchDogTicks);
+
+        if (whatchDogTicks > 10) { // restart after 10*60s if no mqtt was sent succesfully
+          Serial.println("State undefined: Restart controller now.");
+          ESP.restart();
+        }
+    }
+    // unlockVariable();
+    vTaskDelay(5);
+  }
+}
+
+void sendMqttData() {
+    whatchDogTicks = 0;
+    Serial.println("Send MQTT data...");
+    mqttSend("/renogy/sensor/renogy_last_update", actualTimeStamp);
+    mqttSend("/renogy/sensor/renogy_current", String(RENOGYcurrent));
+    mqttSend("/renogy/sensor/renogy_power", RENOGYpower);
+    mqttSend("/renogy/sensor/renogy_voltage", String(RENOGYvoltage));
+    mqttSend("/renogy/sensor/renogy_chargelevel", String(RENOGYchargeLevel));
+    mqttSend("/renogy/sensor/renogy_capacity", String(RENOGYcapacity));
+    mqttSend("/renogy/sensor/renogy_temperature", String(RENOGYtemperature));
+    mqttSend("/renogy/sensor/dht_hidxtemperature", String(DHTheatindex));
+    mqttSend("/renogy/sensor/dht_temperature", String(DHTtemp));
+    mqttSend("/renogy/sensor/dht_humidity", String(DHThumi));
+    mqttSend("/renogy/sensor/renogy_timer", String(RENOGYtimer));
+    mqttSend("/renogy/sensor/renogy_deviceaddressesnumber", String(deviceAddressesNumber));
+
+    mqttSend("/renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
+    mqttSend("/renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
+    Serial.println("Mqtt data was send, return...");
 }
