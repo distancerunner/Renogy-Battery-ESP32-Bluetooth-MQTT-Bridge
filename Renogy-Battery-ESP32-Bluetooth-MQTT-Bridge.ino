@@ -131,6 +131,7 @@ static void notifyCallback(
 
       // compareValuesForTimer();
       updateEggTimer();
+      calculatePower();
 
       callData="getTemperatures";
       flexiblePollingSpeed = 2000; // next call for data in 2s
@@ -253,11 +254,30 @@ void compareValuesForTimer() {
   }
 
   voltage = RENOGYvoltage.toFloat();
-  current[deviceAddressesNumber] = RENOGYcurrent.toFloat();
+  // current[deviceAddressesNumber] = RENOGYcurrent.toFloat();
+  // power[deviceAddressesNumber] = RENOGYcurrent.toFloat()*RENOGYvoltage.toFloat();
+
+  // RENOGYpower = "0";
+  // int powerTemp = 0;
+  // for (int i = 0; i < DEVICEAMOUNT; i++)
+  // {
+  //   Serial.print("current:");
+  //   Serial.println(i);
+  //   Serial.println(current[i]);
+  //   Serial.print("power:");
+  //   Serial.println(i);
+  //   Serial.println(power[i]);
+  //   powerTemp += power[i];
+  // }
+  // RENOGYpower = String(powerTemp);
+}
+
+void calculatePower() {
   power[deviceAddressesNumber] = RENOGYcurrent.toFloat()*RENOGYvoltage.toFloat();
 
   RENOGYpower = "0";
   int powerTemp = 0;
+  Serial.println("");
   for (int i = 0; i < DEVICEAMOUNT; i++)
   {
     Serial.print("current:");
@@ -268,6 +288,7 @@ void compareValuesForTimer() {
     Serial.println(power[i]);
     powerTemp += power[i];
   }
+  Serial.println("");
   RENOGYpower = String(powerTemp);
 }
 
@@ -444,7 +465,6 @@ void loop() {
     Serial.println("Eggtimer is running. Send new timer data a bit more often.");
     timerTickerForEggTimer = millis();
     updateEggTimer();
-    updateDhtTemperature();
     sendMqttData();
   }
 
@@ -461,7 +481,8 @@ void loop() {
       };
       // String newValue = "Time since boot: " + String(millis()/1000);
       Serial.println("Send new characteristic value:");      
-
+      updateDhtTemperature();
+      
       actualTimeStamp = getClockTime();
       if (callData == "getLevels") {
         if (checkWiFiConnection()) {
@@ -551,6 +572,11 @@ void updateDhtTemperature() {
   DHThumi = dht.readHumidity();
   DHTtemp = dht.readTemperature();
   DHTheatindex = dht.computeHeatIndex(DHTtemp, DHThumi, false);
+  Serial.println("");
+  Serial.println("updateDhtTemperature");
+  Serial.println(DHThumi);
+  Serial.println(DHTtemp);
+  Serial.println("");
 }
 
 void myWhatchdog( void * pvParameters ){
