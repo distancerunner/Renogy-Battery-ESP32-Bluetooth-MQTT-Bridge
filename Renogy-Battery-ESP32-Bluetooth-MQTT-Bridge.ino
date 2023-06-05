@@ -273,6 +273,7 @@ void compareValuesForTimer() {
 }
 
 void calculatePower() {
+  current[deviceAddressesNumber] = RENOGYcurrent.toFloat();
   power[deviceAddressesNumber] = RENOGYcurrent.toFloat()*RENOGYvoltage.toFloat();
 
   RENOGYpower = "0";
@@ -280,12 +281,11 @@ void calculatePower() {
   Serial.println("");
   for (int i = 0; i < DEVICEAMOUNT; i++)
   {
-    Serial.print("current:");
-    Serial.println(i);
-    Serial.println(current[i]);
-    Serial.print("power:");
-    Serial.println(i);
-    Serial.println(power[i]);
+    Serial.print(i);
+    Serial.print(" current:");
+    Serial.print(current[i]);
+    Serial.print(" power:");
+    Serial.print(power[i]);
     powerTemp += power[i];
   }
   Serial.println("");
@@ -407,6 +407,7 @@ void setup() {
 
 // This is the Arduino main loop function.
 void loop() {
+  espMQTT.update();  // should be called
 
   if(Serial.available()){
     char charE = Serial.read();
@@ -480,8 +481,7 @@ void loop() {
         {0x30, 0x03, 0x13, 0x99, 0x00, 0x05, 0x55, 0x43}, // Temperatures 
       };
       // String newValue = "Time since boot: " + String(millis()/1000);
-      Serial.println("Send new characteristic value:");      
-      updateDhtTemperature();
+      Serial.println("Send new characteristic value:");
       
       actualTimeStamp = getClockTime();
       if (callData == "getLevels") {
@@ -559,6 +559,8 @@ boolean checkWiFiConnection() {
 
       }
 
+    } else {
+      return true;
     }
 
   } else {
@@ -601,6 +603,7 @@ void myWhatchdog( void * pvParameters ){
 }
 
 void sendMqttData() {
+    updateDhtTemperature();
     whatchDogTicks = 0;
     Serial.println("Send MQTT data...");
     mqttSend("/renogy/sensor/renogy_last_update", actualTimeStamp);
