@@ -5,6 +5,7 @@
 
 #include "config.h"
 #include <NimBLEDevice.h>
+#include <HTTPClient.h>
 #include "wifiBridge.h"
 #include "DHT.h"
 
@@ -185,6 +186,7 @@ static void notifyCallback(
     Serial.println(" "); 
     Serial.println("END notifyCallback ########");
     delay(5);
+    // checkDataConnection();
     sendMqttData();
 }
 
@@ -364,6 +366,7 @@ void setupDeviceAndConnect() {
   doScan = true;
   delay(1000);
 
+  // BLEDevice::deleteAllBonds();
   BLEDevice::init("client");
 }
 
@@ -430,6 +433,7 @@ void loop() {
       Serial.println("We are now connected to the BLE Server.");
       Serial.println("################################################");
     } else {
+      // checkDataConnection();
       Serial.println("We have failed to connect to the server; there is nothin more we will do.");
       tryReconnect = true;
     }
@@ -453,7 +457,8 @@ void loop() {
   if ((millis() > timerTicker2 + 10000) && tryReconnect) {
     tryReconnect = false;
     // force a restart, if there is a problem somewhere, while we dont sent data after 60s
-    pClient->disconnect();
+    // pClient->disconnect();
+    BLEDevice::deinit();
     responseData = "";
     callData = "";
     Serial.println("");
@@ -543,6 +548,7 @@ void switchDdeviceAddressesNumber() {
 // restart device, if connection is gone
 boolean checkWiFiConnection() {
   // connected = false;
+  checkDataConnection();
   if ( checkWiFi()) {
     Serial.println("Wifi connection still exist.");
     // in case mqtt connection is lost, restart device
@@ -585,12 +591,14 @@ void myWhatchdog( void * pvParameters ){
   for(;;){
     // lockVariable();
     if ((millis() > timerTickerDisplay + 60000)) {
-    // if ((millis() > timerTickerDisplay + 1000)) {
+
+    // if ((millis() > timerTickerDisplay + 10000)) {
         
         whatchDogTicks++; // will increment ticks every minute
         timerTickerDisplay = millis();
         Serial.print("whatchDogTicks ");
         Serial.println(whatchDogTicks);
+        // checkDataConnection();
 
         if (whatchDogTicks > 10) { // restart after 10*60s if no mqtt was sent succesfully
           Serial.println("State undefined: Restart controller now.");
@@ -604,7 +612,8 @@ void myWhatchdog( void * pvParameters ){
 
 void sendMqttData() {
     updateDhtTemperature();
-    whatchDogTicks = 0;
+    // checkDataConnection();
+    // whatchDogTicks = 0;
     Serial.println("Send MQTT data...");
     mqttSend("/renogy/sensor/renogy_last_update", actualTimeStamp);
     mqttSend("/renogy/sensor/renogy_current", String(RENOGYcurrent));
@@ -622,4 +631,24 @@ void sendMqttData() {
     mqttSend("/renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
     mqttSend("/renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
     Serial.println("Mqtt data was send, return...");
+}
+
+void checkDataConnection() {
+  
+    HTTPClient http;
+  
+    http.begin("https://megabyte-programmierung.de/test-1.php"); //Specify the URL
+    int httpCode = http.GET(); //Make the request
+  
+    if (httpCode == 200) { // Check for the returning code
+      whatchDogTicks = 0;
+      // String payload = http.getString();
+      // Serial.println(httpCode);
+      // Serial.println(payload);
+    }
+    else {
+      Serial.println("Error on HTTP request");
+    }
+  
+    http.end();
 }
