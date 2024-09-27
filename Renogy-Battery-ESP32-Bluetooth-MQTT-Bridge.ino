@@ -21,6 +21,7 @@ static BLEUUID NOTIFY_UUID("0000fff1-0000-1000-8000-00805f9b34fb");
 String callData = "getLevels";
 String responseData = "";
 String RENOGYpower="";
+String RENOGYAvgCHARGELEVEL="";
 String RENOGYcurrent="";
 String RENOGYvoltage="";
 String RENOGYcurrentDebug="0";
@@ -75,6 +76,9 @@ static double voltage = 0.0;
 static int16_t power[DEVICEAMOUNT] = {
   0,0
 };
+static int16_t chargelevel[DEVICEAMOUNT] = {
+  0,0
+};
 uint8_t deviceAddressesNumber=0;
 
 int mqtt_server_count = sizeof(mqtt_server) / sizeof(mqtt_server[0]);
@@ -111,7 +115,8 @@ static void notifyCallback(
       tempvalueI = ((uint8_t)pData[RENOGYHEADERSIZE+8] << 24) | ((uint8_t)pData[RENOGYHEADERSIZE+9] << 16) | ((uint8_t)pData[RENOGYHEADERSIZE+10] << 8) | (uint8_t)pData[RENOGYHEADERSIZE+11];
       RENOGYcapacity = tempvalueI * 0.001;
 
-      // Serial.println("Get Levels ########");
+      Serial.println("----------");
+      Serial.println("Get Levels ########");
       // Serial.println("Current:");
       // Serial.println(RENOGYcurrent);
       // Serial.println("Voltage:");
@@ -127,9 +132,9 @@ static void notifyCallback(
         RENOGYcurrent = RENOGYcurrentDebug;
       }
 
-      // compareValuesForTimer();
-      // updateEggTimer();
+      getTemperatureSensors();
       calculatePower();
+      calculateAvgCHARGELEVEL();
 
       callData="getTemperatures";
       flexiblePollingSpeed = 2000; // next call for data in 2s
@@ -197,54 +202,6 @@ class MyClientCallback : public BLEClientCallbacks {
   }
 };
 
-
-void compareValuesForTimer() {
-  Serial.println("compareValuesForTimer");
-  Serial.printf("dVoltage: %f dCurrent: %f Power %f ISRunning: %s", 
-    (RENOGYvoltage.toFloat()), RENOGYcurrent.toFloat(),
-    power[deviceAddressesNumber], timerIsRunning?"true":"false"
-  );
-  Serial.println("");
-  Serial.printf("dVoltage: %f dCurrent: %f Power %f ISRunning: %s", 
-    ((float)voltage - RENOGYvoltage.toFloat()), abs(current[deviceAddressesNumber] - RENOGYcurrent.toFloat()),
-    power[deviceAddressesNumber], timerIsRunning?"true":"false"
-  );
-  Serial.println("");
-  if (timerIsRunning) {
-    // buffer 90s, till first attempt to stop timer. to avoid issues while fetching data from other device
-    if (
-        (abs(power[deviceAddressesNumber]) <= 100 && timerCounterActual > 90)
-         ||
-         // force stop of timer, after 1800s/30min in case it is still running
-         timerCounterActual > 1800
-        ) {
-      timerIsRunning = false;
-      RENOGYtimer = "00:00";
-    }
-  }
-
-  if (!timerIsRunning) {
-    // check if there is a massive voltage drop between 2 measurements
-    // 13.5 - 13.1 = 0.4
-    if ((float)voltage - RENOGYvoltage.toFloat() >= 0.1) {
-      // check if there is also massive current drop between 2 measurements
-      if (abs(current[deviceAddressesNumber] - RENOGYcurrent.toFloat()) >= 10) {
-        timerCounterStart = getEpochTime();
-        timerIsRunning = true;
-        
-        // for interpolation, set current equal in every device
-        for (int i = 0; i < DEVICEAMOUNT; i++){
-          current[deviceAddressesNumber] = RENOGYcurrent.toFloat();
-        }
-      }
-    }
-  }
-
-  voltage = RENOGYvoltage.toFloat();
-  // current[deviceAddressesNumber] = RENOGYcurrent.toFloat();
-  // power[deviceAddressesNumber] = RENOGYcurrent.toFloat()*RENOGYvoltage.toFloat();
-}
-
 void calculatePower() {
   current[deviceAddressesNumber] = RENOGYcurrent.toFloat();
   power[deviceAddressesNumber] = RENOGYcurrent.toFloat()*RENOGYvoltage.toFloat();
@@ -254,15 +211,40 @@ void calculatePower() {
   Serial.println("");
   for (int i = 0; i < DEVICEAMOUNT; i++)
   {
+    Serial.print("----Power Battery Number-");
     Serial.print(i);
+    Serial.print(": ");
     Serial.print(" current:");
     Serial.print(current[i]);
     Serial.print(" power:");
-    Serial.print(power[i]);
+    Serial.println(power[i]);
     powerTemp += power[i];
   }
+  Serial.print("Summ of power: ");
+  Serial.print(powerTemp);
   Serial.println("");
   RENOGYpower = String(powerTemp);
+}
+
+void calculateAvgCHARGELEVEL() {
+  chargelevel[deviceAddressesNumber] = RENOGYchargeLevel.toFloat();
+
+  RENOGYAvgCHARGELEVEL = "0";
+  int avgLVLTemp = 0;
+  Serial.println("");
+  for (int i = 0; i < DEVICEAMOUNT; i++)
+  {
+    Serial.print("----CHARGELEVEL Battery Number-");
+    Serial.print(i);
+    Serial.print(": ");
+    Serial.println(chargelevel[i]);
+    avgLVLTemp += chargelevel[i];
+  }
+  avgLVLTemp = avgLVLTemp/DEVICEAMOUNT;
+  Serial.print("Avg CHARGELEVEL: ");
+  Serial.print(avgLVLTemp);
+  Serial.println("");
+  RENOGYAvgCHARGELEVEL = String(avgLVLTemp);
 }
 
 bool connectToServer() {
@@ -546,12 +528,11 @@ boolean checkWiFiConnection() {
 
 void getTemperatureSensors() {
   readTempSensor();
-  Serial.println("");
-  Serial.println("getTemperatureSensors");
+  // Serial.println("");
+  // Serial.println("getTemperatureSensors");
   temperaturArray = getTemperatureValues();
   tempsensor1 = -127.8;
   tempsensor2 = -127.8;
-
 
   for(byte i=0 ;i < getSensorAmount(); i++) {
     
@@ -561,12 +542,14 @@ void getTemperatureSensors() {
     if(i==1) {
       tempsensor2 = *(temperaturArray+i);
     }
-    Serial.print("Sensor ");
+    Serial.print("TempSensor ");
     Serial.print(i+1);
-    Serial.print(": "); 
-    Serial.println(*(temperaturArray+i));
-    Serial.println("##############");
+    Serial.print(": ");
+    Serial.print(*(temperaturArray+i));
+    Serial.print("   ");
   }
+
+  Serial.println("----------------"); 
 
 }
 
@@ -599,6 +582,7 @@ void sendMqttData() {
     mqttSend("/renogy/sensor/renogy_last_update", actualTimeStamp);
     mqttSend("/renogy/sensor/renogy_current", String(RENOGYcurrent));
     mqttSend("/renogy/sensor/renogy_power", RENOGYpower);
+    mqttSend("/renogy/sensor/renogy_average_chargelevel", RENOGYAvgCHARGELEVEL);
     mqttSend("/renogy/sensor/renogy_voltage", String(RENOGYvoltage));
     mqttSend("/renogy/sensor/renogy_chargelevel", String(RENOGYchargeLevel));
     mqttSend("/renogy/sensor/renogy_capacity", String(RENOGYcapacity));
