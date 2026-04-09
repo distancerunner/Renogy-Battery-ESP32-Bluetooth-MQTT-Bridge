@@ -25,7 +25,7 @@ void initTempSensor(void) {
   
   if ((AMOUNT_DS18B20 > 0)) {
     myDS18B20.begin();
-    Serial.print("Amount of connected Temperature Sensors: ");
+    Serial.print("Amount of connected External Temperature Sensors: ");
     amountOfReallyConnectedSensors = myDS18B20.getDeviceCount();
     Serial.println(amountOfReallyConnectedSensors, DEC);
     Serial.println("----------------------------------");
@@ -39,11 +39,10 @@ void initTempSensor(void) {
   }
 }
 
-void readTempSensor(void) {
-  Serial.println("-readTempSensor-----------------");
+void readExternalTemperatureSensors(void) {
+  Serial.println("-readTempSensor-External Temperature-------------");
   if ((AMOUNT_DS18B20 > 0)) {
     myDS18B20.requestTemperatures();
-
     for(byte i=0 ;i < AMOUNT_DS18B20; i++) {
       if (i < amountOfReallyConnectedSensors) {
         

@@ -47,7 +47,8 @@ String wifiSSIDValue="noSSID";
 String actualTimeStamp="00:00:00";
 
 uint8_t firstRun = 1;
-int flexiblePollingSpeed = 20000;
+int flexiblePollingSpeed = 6000;
+uint8_t watchdogSuccessCounter = 0;
 uint16_t timerCounterStart = 0;
 uint16_t timerCounterActual = 0;
 boolean timerIsRunning = false;
@@ -75,7 +76,8 @@ BLERemoteCharacteristic* pRemoteNotifyCharacteristic;
 // #define MAX_CLIENTS 2
 #define DEVICEAMOUNT 2
 NimBLEClient* pClients[DEVICEAMOUNT]; // Array für mehrere Clients
-HTTPClient http;
+// static WiFiClientSecure sslClient;
+// static HTTPClient http;
 
 struct RenogyDevice {
     NimBLEClient* pClient;
@@ -84,7 +86,7 @@ struct RenogyDevice {
     bool connected = false;
 };
 
-RenogyDevice myDevices[DEVICEAMOUNT]; // Platz für 2 Geräte
+RenogyDevice myDevices[DEVICEAMOUNT]; // Platz für 2 Devicee
 
 // BLEClient* pClient;
 // BLEScan* pBLEScan;
@@ -118,11 +120,12 @@ int mqtt_server_count = sizeof(mqtt_server) / sizeof(mqtt_server[0]);
 // static BLE pServerAddress;
 TaskHandle_t Task1;
 
-static void notifyCallback(
-  BLERemoteCharacteristic* pBLERemoteCharacteristic,
-  uint8_t* pData,
-  size_t length,
-  bool isNotify
+static void notifyCallback
+  (
+    BLERemoteCharacteristic* pBLERemoteCharacteristic,
+    uint8_t* pData,
+    size_t length,
+    bool isNotify
   ) {
 
     Serial.println("-notifyCallback-----------------");
@@ -280,9 +283,9 @@ void calculatePower(int deviceIdxLocal ) {
   Serial.println("----");
   for (int i = 0; i < DEVICEAMOUNT; i++)
   {
-    Serial.print("Power Battery Number-");
-    Serial.print(i);
-    Serial.print(": ");
+    Serial.print("Power Battery (");
+    Serial.print(deviceAddresses[i]);
+    Serial.print("): ");
     Serial.print(" current:");
     Serial.print(current[i]);
     Serial.print(" power:");
@@ -309,9 +312,9 @@ void calculateAvgCHARGELEVEL(int deviceIdxLocal) {
   Serial.println("----");
   for (int i = 0; i < DEVICEAMOUNT; i++)
   {
-    Serial.print("CHARGELEVEL Battery Number-");
-    Serial.print(i);
-    Serial.print(": ");
+    Serial.print("Power Chargelevel (");
+    Serial.print(deviceAddresses[i]);
+    Serial.print("): ");
     Serial.println(chargelevel[i]);
     avgLVLTemp += chargelevel[i];
     RENOGYCHARGELEVELString += String(chargelevel[i]) + "% ";
@@ -330,14 +333,31 @@ void calculateAvgCHARGELEVEL(int deviceIdxLocal) {
 
 bool connectToDevice(int id, NimBLEAddress address) {
   Serial.println("-connectToDevice-----------------");
-  Serial.printf("Verbindung zu Gerät %d (%s)...\n", id, address.toString().c_str());
+  Serial.printf("Verbindung zu Device %d (%s)...\n", id, address.toString().c_str());
 
-  // 1. Client erstellen
+// --- SCHRITT 0: Aufräumen (Sehr wichtig für Stabilität) ---
+  // Falls für diese ID noch ein alter Client existiert, löschen wir ihn sauber.
+  if (myDevices[id].pClient != nullptr) {
+      Serial.println("Alten Client gefunden, lösche ihn...");
+      NimBLEDevice::deleteClient(myDevices[id].pClient);
+      myDevices[id].pClient = nullptr;
+      myDevices[id].connected = false;
+  }
+
+  // --- SCHRITT 1: Client erstellen ---
   myDevices[id].pClient = NimBLEDevice::createClient();
   
-  // 2. Verbinden
+  if (!myDevices[id].pClient) {
+      Serial.println("Konnte keinen neuen Client erstellen (Speichermangel?)");
+      return false;
+  }
+  
+  // --- SCHRITT 2: Verbinden ---
+  // Wir nutzen direkt das 'address' Objekt, das wir bekommen haben
   if (!myDevices[id].pClient->connect(address)) {
-      Serial.println("Verbindung fehlgeschlagen.");
+      Serial.println("Verbindung zu Device fehlgeschlagen.");
+      NimBLEDevice::deleteClient(myDevices[id].pClient);
+      myDevices[id].pClient = nullptr;
       return false;
   }
 
@@ -348,19 +368,34 @@ bool connectToDevice(int id, NimBLEAddress address) {
   if (pWriteSvc == nullptr || pReadSvc == nullptr) {
       Serial.println("Services nicht gefunden.");
       myDevices[id].pClient->disconnect();
+      NimBLEDevice::deleteClient(myDevices[id].pClient);
+      myDevices[id].pClient = nullptr;
       return false;
   }
 
-  // 4. Characteristics holen & speichern
+  // --- SCHRITT 4: Characteristics holen & speichern ---
   myDevices[id].pWriteChar  = pWriteSvc->getCharacteristic(WRITE_UUID);
   myDevices[id].pNotifyChar = pReadSvc->getCharacteristic(NOTIFY_UUID);
 
-  // 5. Notify aktivieren
-  if (myDevices[id].pNotifyChar && myDevices[id].pNotifyChar->canNotify()) {
-      // WICHTIG: Im Callback wissen wir sonst nicht, von wem die Daten kommen.
-      // NimBLE erlaubt es, dem Callback den Client mitzugeben.
-      myDevices[id].pNotifyChar->subscribe(true, notifyCallback);
-      Serial.println("Notifications aktiviert.");
+  if (myDevices[id].pWriteChar == nullptr || myDevices[id].pNotifyChar == nullptr) {
+      Serial.println("Characteristics nicht gefunden.");
+      myDevices[id].pClient->disconnect();
+      NimBLEDevice::deleteClient(myDevices[id].pClient);
+      myDevices[id].pClient = nullptr;
+      return false;
+  }
+
+  // --- SCHRITT 5: Notify aktivieren ---
+  if (myDevices[id].pNotifyChar->canNotify()) {
+      // NimBLE 2.x nutzt 'subscribe' statt 'registerForNotifications'
+      if (!myDevices[id].pNotifyChar->subscribe(true, notifyCallback)) {
+          Serial.println("Subscribe fehlgeschlagen.");
+          myDevices[id].pClient->disconnect();
+          NimBLEDevice::deleteClient(myDevices[id].pClient);
+          myDevices[id].pClient = nullptr;
+          return false;
+      }
+      Serial.println("Verbindung zu Device und Notifications aktiviert.");
   }
 
   myDevices[id].connected = true;
@@ -373,22 +408,21 @@ void setupDeviceAndConnect() {
   doConnect = true;
   connected = false;
   doScan = true;
-  readTempSensor();
-
-  // BLEDevice::deleteAllBonds();
-  BLEDevice::init("client");
-
+  readExternalTemperatureSensors();
+ 
+  size_t ramVor = ESP.getFreeHeap();
+  Serial.print("Heap setupDeviceAndConnect: "); Serial.println(ESP.getFreeHeap());  
+  Serial.println("-Starte Verbindung zu Device-----------");
   for(int i = 0; i < DEVICEAMOUNT; i++) {
-      connectToDevice(i, NimBLEAddress(deviceAddresses[i]));
+    connectToDevice(i, NimBLEAddress(deviceAddresses[i], 0));
   }
-
+  
   // read external Sensors after every device reconnect
   getExternalTemperatureSensors();
-
+  Serial.println("Warte einige Sekunden bis zum Abfragen der Werte...");
+  delay(5000);
   callData = "getLevels";
   connected = true;
-  flexiblePollingSpeed = 6000; // next call for data in 2s
-
 }
 
 
@@ -402,7 +436,16 @@ void setup() {
     &Task1,      /* Task handle to keep track of created task */
     0);          /* pin task to core 0 */    
 
-  Serial.begin(19200);
+  // Bluetooth-Controller-Speicher freigeben, falls er "feststeckt"
+  // (Nur nötig, wenn der Fehler nach einem Soft-Reset auftritt)
+  esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+
+  if (!NimBLEDevice::isInitialized()) {
+    NimBLEDevice::init("ESP32_Renogy_Monitor");
+  }
+  // NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+
+  Serial.begin(115200);
   Serial.println("Starting Arduino BLE Client application...");
 
   if (startWiFiMulti()) {
@@ -411,6 +454,8 @@ void setup() {
 
     setClock();
     if ( startMQTT()) {
+
+      
       initTempSensor();
       // tempsensor1 = 0;
       // tempsensor2 = 0;
@@ -434,6 +479,9 @@ void setup() {
 
 void loop() {
   espMQTT.update();  // should be called
+  // Serial.println("-loop-----------------");
+  // size_t ramVor = ESP.getFreeHeap();
+  // Serial.print("-Heap Start: ---"); Serial.println(ESP.getFreeHeap());
 
   if(Serial.available()){
     char charE = Serial.read();
@@ -488,19 +536,25 @@ void loop() {
       if (callData == "connectToAnotherHost") {
         for(int i = 0; i < DEVICEAMOUNT; i++) {
           // Prüfen, ob der Client-Zeiger existiert (nicht NULL ist)
-            if (myDevices[i].pClient != nullptr) {
-                // Nur disconnecten, wenn er auch wirklich verbunden ist
-                if (myDevices[i].pClient->isConnected()) {
-                    myDevices[i].pClient->disconnect();
-                    Serial.printf("Gerät %d erfolgreich getrennt.\n", i);
-                }
-                myDevices[i].connected = false; // Status-Flag zurücksetzen
+          if (myDevices[i].pClient != nullptr) {
+            // Nur disconnecten, wenn er auch wirklich verbunden ist
+            if (myDevices[i].pClient != nullptr && myDevices[i].pClient->isConnected()) 
+            {
+              String macAddr = myDevices[i].pClient->getPeerAddress().toString().c_str();
+              // 1. Verbindung sauber trennen
+              myDevices[i].pClient->disconnect();
+              // 2. Den Client komplett aus dem Speicher löschen
+              NimBLEDevice::deleteClient(myDevices[i].pClient);
+              // 3. Den Zeiger auf NULL setzen, damit keine Geister-Zugriffe passieren
+              myDevices[i].pClient = nullptr;
+              myDevices[i].connected = false;
+              Serial.printf("Device %d [%s] erfolgreich getrennt und Speicher freigegeben.\n", i, macAddr.c_str());
             }
+            myDevices[i].connected = false; // Status-Flag zurücksetzen
+          }
         }
-        connected = false;
-        Serial.println("Warte einige Sekuden bis zum neu Verbinden...");
         checkDataConnection();
-        delay(3000);
+        connected = false;
         setupDeviceAndConnect();
       }
 
@@ -518,9 +572,9 @@ void loop() {
       if (callData == "getCellVolts") {
           if (checkWiFiConnection()) {
               callData = "";
-              sendCommandToDevice(0, 1,"getCellVolts"); // Gerät 0, Command "CellVolts"
+              sendCommandToDevice(0, 1,"getCellVolts"); // Device 0, Command "CellVolts"
               delay(1000);
-              sendCommandToDevice(1, 1,"getCellVolts"); // Gerät 1, Command "CellVolts"
+              sendCommandToDevice(1, 1,"getCellVolts"); // Device 1, Command "CellVolts"
           }
           callData="getTemperatures";
       }
@@ -528,9 +582,9 @@ void loop() {
       if (callData == "getLevels") {
           if (checkWiFiConnection()) {
               callData = "";
-              sendCommandToDevice(0, 0, "getLevels"); // Gerät 0, Command "Levels"
+              sendCommandToDevice(0, 0, "getLevels"); // Device 0, Command "Levels"
               delay(1000);
-              sendCommandToDevice(1, 0, "getLevels"); // Gerät 1, Command "Levels"
+              sendCommandToDevice(1, 0, "getLevels"); // Device 1, Command "Levels"
           }
           callData="getCellVolts";
       }
@@ -539,21 +593,24 @@ void loop() {
       timerTickerForWhatchDog = millis();
     }
   }
-  
+  // Serial.print("Heap Ende: "); Serial.println(ESP.getFreeHeap());
+  // size_t ramNach = ESP.getFreeHeap();
+  // Serial.printf("loop: Block-Leck: %d Bytes | RAM frei: %d\n", (int)ramVor - (int)ramNach, ramNach);
+
 } // End of loop
 
 void sendCommandToDevice(int deviceIdx, int commandIdx, String responseDataLocal) {
   Serial.println("-sendCommandToDevice-----------------");
   responseData = responseDataLocal;
-  // Sicherheitscheck: Ist der Index gültig und das Gerät verbunden?
+  // Sicherheitscheck: Ist der Index gültig und das Device verbunden?
   if (deviceIdx >= 2 || !myDevices[deviceIdx].connected || myDevices[deviceIdx].pWriteChar == nullptr) {
-      Serial.printf("Fehler: Gerät %d nicht bereit!\n", deviceIdx);
+      Serial.printf("Fehler: Device %d nicht bereit!\n", deviceIdx);
       return;
   }
 
-  Serial.printf("Sende Command %d an Gerät %d...\n", commandIdx, deviceIdx);
+  Serial.printf("Sende Command %d an Device %d...\n", commandIdx, deviceIdx);
   
-  // Hier wird die Charakteristik des spezifischen Geräts aus dem Array genutzt
+  // Hier wird die Charakteristik des spezifischen Devices aus dem Array genutzt
   myDevices[deviceIdx].pWriteChar->writeValue(commands[commandIdx], 8); 
 }
 
@@ -561,8 +618,7 @@ void sendCommandToDevice(int deviceIdx, int commandIdx, String responseDataLocal
 // restart device, if connection is gone
 boolean checkWiFiConnection() {
   Serial.println("-checkWiFiConnection-----------------");
-  // connected = false;
-  checkDataConnection();
+
   if ( checkWiFi()) {
     Serial.println("Wifi connection still exist.");
     // in case mqtt connection is lost, restart device
@@ -611,7 +667,7 @@ void getExternalTemperatureSensors() {
           tempsensor2 = aktuellerWert;
       }
     }
-    Serial.print("TempSensor ");
+    Serial.print("External Temperature Sensor ");
     Serial.print(i+1);
     Serial.print(": ");
     Serial.print(*(temperaturArray+i));
@@ -623,30 +679,6 @@ void getExternalTemperatureSensors() {
   }
   
   Serial.println("--End external Temperature Sensors--");
-}
-
-void myWhatchdog( void * pvParameters ){
-  for(;;){
-    // lockVariable();
-    if ((millis() > timerTickerDisplay + 60000)) {
-
-    // if ((millis() > timerTickerDisplay + 10000)) {
-        Serial.println("-myWhatchdog-----------------");
-        whatchDogTicks++; // will increment ticks every minute
-        timerTickerDisplay = millis();
-        Serial.print("watchdog: whatchDogTicks ");
-        Serial.print(whatchDogTicks);
-        Serial.println(": will increment ticks every minute, restart after 10*60s if webpagecall was not successful with 200 was sent succesfully.");
-        Serial.println("");
-
-        if (whatchDogTicks > 10) { // restart after 10*60s if no mqtt was sent succesfully
-          Serial.println("State undefined: Restart controller now.");
-          ESP.restart();
-        }
-    }
-    // unlockVariable();
-    vTaskDelay(5);
-  }
 }
 
 void sendRenogyDiscovery() {
@@ -678,7 +710,7 @@ void sendRenogyDiscovery() {
   publishSensor("renogy_last_update", "Renogy Letztes Update", "", "", renogyDevice, "renogy");
   publishSensor("renogy_wifi_ssid", "Renogy WiFi SSID", "", "", renogyDevice, "renogy");
   publishSensor("renogy_adress", "Renogy Aktuelle Adresse", "", "", renogyDevice, "renogy");
-  publishSensor("renogy_deviceaddressesnumber", "Renogy Geräte Nummer", "", "", renogyDevice, "renogy");
+  publishSensor("renogy_deviceaddressesnumber", "Renogy Devicee Nummer", "", "", renogyDevice, "renogy");
 }
 
 // Hilfsfunktion zum Senden der Config
@@ -752,20 +784,108 @@ void sendMqttDataExternalTemp() {
     Serial.println("---------------------");
 }
 
+
+void myWhatchdog( void * pvParameters ){
+  for(;;){
+    // lockVariable();
+    if ((millis() > timerTickerDisplay + 60000)) {
+        // checkDataConnection();
+    // if ((millis() > timerTickerDisplay + 10000)) {
+        Serial.println("-myWhatchdog-----------------");
+        whatchDogTicks++; // will increment ticks every minute
+        timerTickerDisplay = millis();
+        Serial.print("watchdog: whatchDogTicks ");
+        Serial.print(whatchDogTicks);
+        //restart after x*60s if webpagecall was not successful with 200 was sent succesfully.
+        Serial.println(": will increment ticks every minute"); 
+        Serial.println("");
+
+        if (whatchDogTicks > 5) { // restart after x*60s if no http request was succesfully
+          Serial.println("State undefined: Restart controller now.");
+          ESP.restart();
+        }
+    }
+    // unlockVariable();
+    vTaskDelay(5);
+  }
+}
+
 void checkDataConnection() {
 
-    Serial.println("-checkDataConnection-----------------");
+  Serial.println("-checkDataConnection-----------------");
+  size_t ramVor = ESP.getFreeHeap();
+
+  // Scope starten
+  {
+  WiFiClientSecure sslClient;
+  HTTPClient http;
+
     // http.begin("https://megabyte-programmierung.de/test-1.php"); //Specify the URL
-    http.begin("https://strom.megabyte-programmierung.de/"); //Specify the URL
-    int httpCode = http.GET(); //Make the request
-  
-    if (httpCode == 200) { // Check for the returning code
-      whatchDogTicks = 0;
-      Serial.println("watchdog: HTTP request for watchdog was 200");
+    // http.begin("https://strom.megabyte-programmierung.de/"); //Specify the URL
+    sslClient.setInsecure();
+    if(watchdogSuccessCounter>99){
+      watchdogSuccessCounter=0;
     }
-    else {
-      Serial.println("watchdog: Error on HTTP request for watchdog");
+
+    if (http.begin(sslClient, "https://strom.megabyte-programmierung.de/")) {
+    // if (http.begin(sslClient, "https://megabyte-programmierung.de/test-1.php")) {
+        http.setTimeout(2000);
+        int httpCode = http.GET();
+        if (httpCode == 200) { // Check for the returning code
+          String payload = http.getString();
+          whatchDogTicks = 0;
+          watchdogSuccessCounter++;
+          Serial.printf(" watchdog: HTTP request for watchdog was 200. Counter: %d\n", watchdogSuccessCounter);
+          Serial.printf(" watchdog: %d, RAM frei: %d\n", httpCode, ESP.getFreeHeap());
+        }
+        else {
+          // Serial.println(httpCode);
+          Serial.printf(" watchdog: HTTP request for watchdog has an Error. Counter: %d\n", watchdogSuccessCounter);
+          Serial.printf(" watchdog: %d, RAM frei: %d\n", httpCode, ESP.getFreeHeap());
+        }
+
+        http.end(); // Schließt die Verbindung, behält aber den Buffer bei
     }
-  
-    http.end();
+    sslClient.stop(); // Verbindung hart beenden
+  } 
+  // Hier werden die Destruktoren von http und sslClient gerufen
+
+  size_t ramNach = ESP.getFreeHeap();
+  Serial.printf("watchdog: Block-Leck: %d Bytes | RAM frei: %d\n", (int)ramVor - (int)ramNach, ramNach);
 }
+
+// void checkDataConnection() {
+// size_t ramVor = ESP.getFreeHeap();
+    
+//     // Scope starten
+//     {
+//         WiFiClientSecure sslClient;
+//         HTTPClient http;
+        
+//         // Da 'setRxBufferSize' fehlt, erzwingen wir die Freigabe 
+//         // durch Zerstörung des Objekts am Ende des Scopes.
+//         sslClient.setInsecure();
+        
+//         // Manche Versionen nutzen diese Methode für den SSL-Buffer-Limit:
+//         // sslClient.setBufferSizes(1024, 1024); // Falls das auch fehlt, ignorieren
+        
+//         if (http.begin(sslClient, "https://megabyte-programmierung.de/test-1.php")) {
+//             http.setTimeout(2000);
+//             int httpCode = http.GET();
+            
+//             if (httpCode > 0) {
+//                 // Vermeide getString() - es kopiert den ganzen Buffer in einen neuen String
+//                 // Nutze zum Testen nur getSize(), um zu sehen ob das Leck verschwindet
+//                 int len = http.getSize();
+//                 Serial.printf("Payload Größe: %d\n", len);
+//             }
+//             http.end();
+//         }
+//         sslClient.stop(); // Verbindung hart beenden
+//     } 
+//     // Hier werden die Destruktoren von http und sslClient gerufen
+
+//     size_t ramNach = ESP.getFreeHeap();
+//     // Serial.printf("Block-Leck: %d Bytes | RAM frei: %d\n", (int)ramVor - (int)ramNach, ramNach);
+//     Serial.printf("watchdog: Block-Leck: %d Bytes | RAM frei: %d\n", (int)ramVor - (int)ramNach, ramNach);
+// }
