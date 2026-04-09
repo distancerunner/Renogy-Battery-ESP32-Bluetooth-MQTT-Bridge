@@ -9,6 +9,7 @@
 // the strongest WiFi station will be used
 const char* ssid[] = {"LALALALALA", "LALALALALA", "LALALALALA"};
 const char* pw[] = {"LALALALALA", "LALALALALA", "LALALALALA"};
+const char* host_name = "ESP32 Renogy Monitor";
 
 /*
    MQTT parameters

@@ -15,12 +15,16 @@ int ssid_count = sizeof(ssid) / sizeof(ssid[0]);
 
 String getClockTime()
 {
+  Serial.println("-getClockTime-----------------");
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo)){
     Serial.println("No time available (yet)");
     return "No Time set";
   }
-  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+
+  char timeString[64]; // Puffer für den formatierten Text
+  strftime(timeString, sizeof(timeString), "%A, %B %d %Y %H:%M:%S", &timeinfo);
+  Serial.println(String(timeString));
   // Serial.print("Hour: ");
   // Serial.println(&timeinfo, "%H");
   // Serial.print("Minute: ");
@@ -47,7 +51,7 @@ unsigned long getEpochTime() {
 void setClock() {
   configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");  // UTC
 
-  Serial.print("Waiting for NTP time sync: ");
+  Serial.print("setClock: Waiting for NTP time sync: ");
   time_t now = time(nullptr);
   while (now < 8 * 3600 * 2) {
     yield();
@@ -63,8 +67,10 @@ void setClock() {
 }
 
 boolean startWiFiMulti() {
-  Serial.print("Number of ssid's" + String(ssid_count));
-  Serial.println("");
+  Serial.println("-startWiFiMulti-----------------");
+  Serial.println("Number of ssid: " + String(ssid_count));
+// 1. Hostnamen festlegen (bevor die Verbindung aufgebaut wird)
+  WiFi.setHostname(host_name);
   // add all ssid's to WiFiMulti
   for (int i = 0; i < ssid_count; i++) {
     WiFiMultiElement.addAP(ssid[i], pw[i]);
@@ -72,17 +78,17 @@ boolean startWiFiMulti() {
 
   // try connecting 4 times, with an timeout between
   for (int i = 0; i < 5; i++) {
-    Serial.print("try to connect to wifi...");
+    Serial.print("try to connect to wifi number: ");
     Serial.println(i+1);
     delay(1000*i);
 
     if ((WiFiMultiElement.run() == WL_CONNECTED)) {
-      Serial.print("WiFi connected!!!");
+      Serial.println("WiFi connected!!!");
       return true;
     }
   }
 
-  Serial.print("WiFi could not be started");
+  Serial.println("WiFi could not be started");
   return false;
 }
 
@@ -110,6 +116,7 @@ void mqttSend(String sensor, String value) {
 // Startup
 //
 boolean startMQTT() {
+    Serial.println("-startMQTT-----------------");
     Serial.println("connecting to mqtt host...");
     client.begin(mqtt_server[0], mqtt_port[0], "/mqtt", "mqtt");  // "mqtt" is required
     client.setReconnectInterval(2000);
@@ -119,8 +126,9 @@ boolean startMQTT() {
     delay(1000);
     int maxretries = 5;
     while (!espMQTT.isConnected() && maxretries-- > 0) {
-      Serial.println(".");
+      Serial.println("try to connect...");
       if (espMQTT.connect(mqtt_clientID[0], mqtt_username[0], mqtt_pw[0])) {
+        Serial.println("mqtt is connected!");
         return true;
       } else {
         delay(2000);
