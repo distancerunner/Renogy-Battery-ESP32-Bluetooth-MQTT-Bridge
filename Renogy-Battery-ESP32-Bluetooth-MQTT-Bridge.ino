@@ -5,12 +5,14 @@
  * Board: ESP32 Dev Module, Tools > Partition Scheme > Huge App
  * Core: 3.3.7
  * NimBLE 2.5
+ * ESPTelnet by Lennart 2.2.3
  */
 #include "config.h"
 #include <NimBLEDevice.h>
 #include <HTTPClient.h>
 #include "wifiBridge.h"
 #include "DS18B20_Temperature.h"
+#include <WiFiClientSecure.h>
 
 #define RENOGYHEADERSIZE 3 // drop first 3 bytes of response
 
@@ -481,7 +483,7 @@ void setup() {
 
 void loop() {
   telnet.loop();
-  espMQTT.update();  // should be called
+  espUpdater();
 
   if(Serial.available()){
     char charE = Serial.read();
@@ -594,7 +596,7 @@ boolean checkWiFiConnection() {
   if ( checkWiFi()) {
     L_PRINTLN("Wifi connection still exist.");
     // in case mqtt connection is lost, restart device
-    if (!espMQTT.isConnected()) {
+    if (!isConnected()) {
       delay(10000);
       // after 10s, check if wifi is available
       // if ( checkWiFi()) {
@@ -716,7 +718,7 @@ void publishSensor(String id, String name, String dev_cla, String unit, String d
     payload += "}";
 
     // Senden mit Retain (3. Parameter true)
-    espMQTT.publish(configTopic, payload, true, 1);
+    mqttSend(configTopic, payload);
 }
 
 void sendMqttData() {

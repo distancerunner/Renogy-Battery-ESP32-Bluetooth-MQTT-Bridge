@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <WiFiMulti.h>
 #include "ESPTelnet.h"
+#include <PubSubClient.h>
 
 ESPTelnet telnet;
 bool isAuthenticated = false;
@@ -15,12 +16,10 @@ WiFiMulti WiFiMultiElement;
 
 const char* time_zone = "CET-1CEST,M3.5.0,M10.5.0/3";  // TimeZone rule for Europe/Rome including daylight adjustment rules (optional)
 
-#include <WebSocketsClient.h>  // include before MQTTPubSubClient.h
-#include <MQTTPubSubClient.h>
 #include <time.h>
 
-WebSocketsClient client;
-MQTTPubSubClient espMQTT;
+WiFiClient espClient;
+PubSubClient espMQTT(espClient);
 
 int connectionRetryCount = 0;
 int connectionMaxRetries = 20;
@@ -69,7 +68,6 @@ void setClock() {
   L_PRINT("");
   struct tm timeinfo;
   gmtime_r(&now, &timeinfo);
-  // L_PRINT("NTP time" + String(asctime(&timeinfo)));
   getClockTime();
 }
 
@@ -110,31 +108,31 @@ boolean checkWiFi(){
 }
 
 void espUpdater() {
-    espMQTT.update();  // should be called
+    espMQTT.loop();  // should be called
+}
+
+bool isConnected() {
+  return espMQTT.connected();
 }
 
 void mqttSend(String sensor, String value) {
-    espMQTT.publish(sensor, value);
+    espMQTT.publish(sensor.c_str(), value.c_str(),true);
 }
 
 boolean startMQTT() {
     L_PRINTLN("-startMQTT-----------------");
     L_PRINTLN("connecting to mqtt host...");
-    client.begin(mqtt_server[0], mqtt_port[0], "/mqtt", "mqtt");  // "mqtt" is required
-    client.setReconnectInterval(2000);
-
-    // initialize mqtt client
-    espMQTT.begin(client);
-
-    while (!espMQTT.isConnected() && connectionRetryCount < connectionMaxRetries) {
-      L_PRINTF("connect to mqtt, try number: %d/%d \n", connectionRetryCount+1, connectionMaxRetries);
-      if (espMQTT.connect(mqtt_clientID[0], mqtt_username[0], mqtt_pw[0])) {
-        L_PRINTLN("mqtt is connected!");
-        return true;
-      } else {
-        delay(5000);
-      }
-      connectionRetryCount++;
+    while (!espMQTT.connected() && connectionRetryCount < connectionMaxRetries) {
+        L_PRINTF("connect to mqtt, try number: %d/%d \n", connectionRetryCount + 1, connectionMaxRetries);
+        
+        if (espMQTT.connect(mqtt_clientID[0], mqtt_username[0], mqtt_pw[0])) {
+            L_PRINTLN("mqtt is connected!");
+            return true;
+        } else {
+            L_PRINTF("failed, rc=%d - retry in 5s\n", espMQTT.state());
+            delay(5000);
+        }
+        connectionRetryCount++;
     }
     return false;
 }

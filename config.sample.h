@@ -1,16 +1,8 @@
  
-// #define ESP32
-
-/*
-   WiFi parameters
-*/
-
-// WiFi SSID'S and passwords
-// the strongest WiFi station will be used
 const char* ssid[] = {"LALALALALA", "LALALALALA", "LALALALALA"};
 const char* pw[] = {"LALALALALA", "LALALALALA", "LALALALALA"};
 const char* host_name = "ESP32 Renogy Monitor";
-
+const char* telnetpassword = "LALALALA";
 /*
    MQTT parameters
    you can have more than one MQTT server, the first one that answers will have the connection
@@ -20,9 +12,7 @@ const char* host_name = "ESP32 Renogy Monitor";
 */
 #define MQTT_MAX_RETRIES 3   // maximum retires to reach a MQTT broker
 const char* mqtt_server[] = {"mqtt.LALALALALA.de"};
-// no SSL ports
 const uint16_t mqtt_port[] = {9001};
-// SSL ports
 const char* mqtt_clientID[] = {"LALALALALA-mppt-client"};
 const char* mqtt_username[] = {"LALALALALA"};
 const char* mqtt_pw[] = {"LALALALALA"};
