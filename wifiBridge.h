@@ -11,6 +11,9 @@ const char* time_zone = "CET-1CEST,M3.5.0,M10.5.0/3";  // TimeZone rule for Euro
 WebSocketsClient client;
 MQTTPubSubClient espMQTT;
 
+int connectionRetryCount = 0;
+int connectionMaxRetries = 20;
+
 int ssid_count = sizeof(ssid) / sizeof(ssid[0]);
 
 String getClockTime()
@@ -25,13 +28,6 @@ String getClockTime()
   char timeString[64]; // Puffer für den formatierten Text
   strftime(timeString, sizeof(timeString), "%A, %B %d %Y %H:%M:%S", &timeinfo);
   Serial.println(String(timeString));
-  // Serial.print("Hour: ");
-  // Serial.println(&timeinfo, "%H");
-  // Serial.print("Minute: ");
-  // Serial.println(&timeinfo, "%M");
-  // Serial.print("Second: ");
-  // Serial.println(&timeinfo, "%S");
-
   return String(asctime(&timeinfo));
 }
 
@@ -69,17 +65,17 @@ void setClock() {
 boolean startWiFiMulti() {
   Serial.println("-startWiFiMulti-----------------");
   Serial.println("Number of ssid: " + String(ssid_count));
-// 1. Hostnamen festlegen (bevor die Verbindung aufgebaut wird)
+  // 1. Hostnamen festlegen (bevor die Verbindung aufgebaut wird)
   WiFi.setHostname(host_name);
   // add all ssid's to WiFiMulti
   for (int i = 0; i < ssid_count; i++) {
     WiFiMultiElement.addAP(ssid[i], pw[i]);
+    Serial.printf("Select Wifi SSID %s \n", ssid[i]);
   }
 
   // try connecting 4 times, with an timeout between
   for (int i = 0; i < 5; i++) {
-    Serial.print("try to connect to wifi number: ");
-    Serial.println(i+1);
+    Serial.printf("connect to wifi, try number: %d \n", i+1);
     delay(1000*i);
 
     if ((WiFiMultiElement.run() == WL_CONNECTED)) {
@@ -107,14 +103,9 @@ void espUpdater() {
 }
 
 void mqttSend(String sensor, String value) {
-    // Serial.print("Sending " + sensor);
-    // Serial.println();
     espMQTT.publish(sensor, value);
 }
 
-//
-// Startup
-//
 boolean startMQTT() {
     Serial.println("-startMQTT-----------------");
     Serial.println("connecting to mqtt host...");
@@ -123,16 +114,16 @@ boolean startMQTT() {
 
     // initialize mqtt client
     espMQTT.begin(client);
-    delay(1000);
-    int maxretries = 5;
-    while (!espMQTT.isConnected() && maxretries-- > 0) {
-      Serial.println("try to connect...");
+
+    while (!espMQTT.isConnected() && connectionRetryCount < connectionMaxRetries) {
+      Serial.printf("connect to mqtt, try number: %d/%d \n", connectionRetryCount+1, connectionMaxRetries);
       if (espMQTT.connect(mqtt_clientID[0], mqtt_username[0], mqtt_pw[0])) {
         Serial.println("mqtt is connected!");
         return true;
       } else {
-        delay(2000);
+        delay(5000);
       }
+      connectionRetryCount++;
     }
     return false;
 }
