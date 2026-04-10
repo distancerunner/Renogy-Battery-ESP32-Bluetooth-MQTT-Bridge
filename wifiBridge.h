@@ -1,5 +1,16 @@
 #include <WiFi.h>
 #include <WiFiMulti.h>
+#include "ESPTelnet.h"
+
+ESPTelnet telnet;
+bool isAuthenticated = false;
+const String TELNET_PW = telnetpassword;
+
+// Das Makro definiert ein neues "Log"-Kommando, das beide Kanäle bedient
+#define L_PRINT(...)      { Serial.print(__VA_ARGS__);   if(isAuthenticated) telnet.print(__VA_ARGS__);   }
+#define L_PRINTLN(...)    { Serial.println(__VA_ARGS__); if(isAuthenticated) telnet.println(__VA_ARGS__); }
+#define L_PRINTF(f, ...)  { Serial.printf(f, __VA_ARGS__); if(isAuthenticated) telnet.printf(f, __VA_ARGS__); }
+
 WiFiMulti WiFiMultiElement;
 
 const char* time_zone = "CET-1CEST,M3.5.0,M10.5.0/3";  // TimeZone rule for Europe/Rome including daylight adjustment rules (optional)
@@ -18,16 +29,16 @@ int ssid_count = sizeof(ssid) / sizeof(ssid[0]);
 
 String getClockTime()
 {
-  Serial.println("-getClockTime-----------------");
+  L_PRINTLN("-getClockTime-----------------");
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo)){
-    Serial.println("No time available (yet)");
+    L_PRINTLN("No time available (yet)");
     return "No Time set";
   }
 
   char timeString[64]; // Puffer für den formatierten Text
   strftime(timeString, sizeof(timeString), "%A, %B %d %Y %H:%M:%S", &timeinfo);
-  Serial.println(String(timeString));
+  L_PRINTLN(String(timeString));
   return String(asctime(&timeinfo));
 }
 
@@ -36,7 +47,7 @@ unsigned long getEpochTime() {
   time_t now;
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo)) {
-    //Serial.println("Failed to obtain time");
+    //L_PRINTLN("Failed to obtain time");
     return(0);
   }
   time(&now);
@@ -47,7 +58,7 @@ unsigned long getEpochTime() {
 void setClock() {
   configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");  // UTC
 
-  Serial.print("setClock: Waiting for NTP time sync: ");
+  L_PRINT("setClock: Waiting for NTP time sync: ");
   time_t now = time(nullptr);
   while (now < 8 * 3600 * 2) {
     yield();
@@ -55,16 +66,16 @@ void setClock() {
     now = time(nullptr);
   }
 
-  Serial.print("");
+  L_PRINT("");
   struct tm timeinfo;
   gmtime_r(&now, &timeinfo);
-  // Serial.print("NTP time" + String(asctime(&timeinfo)));
+  // L_PRINT("NTP time" + String(asctime(&timeinfo)));
   getClockTime();
 }
 
 boolean startWiFiMulti() {
-  Serial.println("-startWiFiMulti-----------------");
-  Serial.println("Number of ssid: " + String(ssid_count));
+  L_PRINTLN("-startWiFiMulti-----------------");
+  L_PRINTLN("Number of ssid: " + String(ssid_count));
   // 1. Hostnamen festlegen (bevor die Verbindung aufgebaut wird)
   WiFi.setHostname(host_name);
   // add all ssid's to WiFiMulti
@@ -75,16 +86,16 @@ boolean startWiFiMulti() {
 
   // try connecting 4 times, with an timeout between
   for (int i = 0; i < 5; i++) {
-    Serial.printf("connect to wifi, try number: %d \n", i+1);
+    L_PRINTF("connect to wifi, try number: %d \n", i+1);
     delay(1000*i);
 
     if ((WiFiMultiElement.run() == WL_CONNECTED)) {
-      Serial.println("WiFi connected!!!");
+      L_PRINTLN("WiFi connected!!!");
       return true;
     }
   }
 
-  Serial.println("WiFi could not be started");
+  L_PRINTLN("WiFi could not be started");
   return false;
 }
 
@@ -107,8 +118,8 @@ void mqttSend(String sensor, String value) {
 }
 
 boolean startMQTT() {
-    Serial.println("-startMQTT-----------------");
-    Serial.println("connecting to mqtt host...");
+    L_PRINTLN("-startMQTT-----------------");
+    L_PRINTLN("connecting to mqtt host...");
     client.begin(mqtt_server[0], mqtt_port[0], "/mqtt", "mqtt");  // "mqtt" is required
     client.setReconnectInterval(2000);
 
@@ -116,9 +127,9 @@ boolean startMQTT() {
     espMQTT.begin(client);
 
     while (!espMQTT.isConnected() && connectionRetryCount < connectionMaxRetries) {
-      Serial.printf("connect to mqtt, try number: %d/%d \n", connectionRetryCount+1, connectionMaxRetries);
+      L_PRINTF("connect to mqtt, try number: %d/%d \n", connectionRetryCount+1, connectionMaxRetries);
       if (espMQTT.connect(mqtt_clientID[0], mqtt_username[0], mqtt_pw[0])) {
-        Serial.println("mqtt is connected!");
+        L_PRINTLN("mqtt is connected!");
         return true;
       } else {
         delay(5000);
@@ -126,4 +137,28 @@ boolean startMQTT() {
       connectionRetryCount++;
     }
     return false;
+}
+
+// Callback: Wird aufgerufen, wenn jemand per Telnet etwas tippt
+void onTelnetInput(String str) {
+  if (!isAuthenticated) {
+    if (str == TELNET_PW) {
+      isAuthenticated = true;
+      telnet.println("✅ Passwort korrekt! Logs gestartet...");
+    } else {
+      telnet.print("❌ Falsches Passwort! Versuche es erneut: ");
+    }
+  }
+}
+
+// Callback: Begrüßung bei Verbindung
+void onTelnetConnect(String ip) {
+  Serial.print("Telnet-Verbindung von: ");
+  Serial.println(ip);
+  telnet.println("Willkommen beim ESP32-Log-Server.");
+  if (!isAuthenticated) telnet.print("Bitte Passwort eingeben: ");
+}
+
+void onTelnetDisconnect(String ip) {
+  isAuthenticated = false; // Bei Trennung wieder sperren
 }

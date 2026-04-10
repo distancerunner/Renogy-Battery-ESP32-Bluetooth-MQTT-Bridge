@@ -114,12 +114,12 @@ static void notifyCallback
     bool isNotify
   ) {
 
-    Serial.println("-notifyCallback-----------------");
-    // Serial.println("Get notification from BLE device:");
+    L_PRINTLN("-notifyCallback-----------------");
+    // L_PRINTLN("Get notification from BLE device:");
     std::string addr = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString();
     
-    Serial.printf("Daten von %s: ", addr.c_str());
-    Serial.println("");
+    L_PRINTF("Daten von %s: ", addr.c_str());
+    L_PRINTLN("");
 
     deviceAddressesNumber = -1; // Standardmäßig -1 (nicht gefunden)
 
@@ -152,16 +152,16 @@ static void notifyCallback
       RENOGYcapacity = tempvalueI * 0.001;
 
 
-      Serial.println("----------");
-      Serial.println("Get Levels ########");
-      // Serial.println("Current:");
-      // Serial.println(RENOGYcurrent);
-      // Serial.println("Voltage:");
-      // Serial.println(RENOGYvoltage);
-      // Serial.println("RENOGYchargeLevel:");
-      // Serial.println(RENOGYchargeLevel);
-      // Serial.println("RENOGYcapacity:");
-      // Serial.println(RENOGYcapacity);
+      L_PRINTLN("----------");
+      L_PRINTLN("Get Levels ########");
+      // L_PRINTLN("Current:");
+      // L_PRINTLN(RENOGYcurrent);
+      // L_PRINTLN("Voltage:");
+      // L_PRINTLN(RENOGYvoltage);
+      // L_PRINTLN("RENOGYchargeLevel:");
+      // L_PRINTLN(RENOGYchargeLevel);
+      // L_PRINTLN("RENOGYcapacity:");
+      // L_PRINTLN(RENOGYcapacity);
 
       // for debug, no hardware is needed: s for start, e for end
       if (RENOGYcurrentDebug!="0") {
@@ -178,8 +178,8 @@ static void notifyCallback
     if(responseData=="getTemperatures") {
       uint8_t numberSensors = ((int16_t)pData[RENOGYHEADERSIZE+0] << 8) | pData[RENOGYHEADERSIZE+1];
 
-      Serial.println("----------");
-      Serial.println("Get Temperatures ########");
+      L_PRINTLN("----------");
+      L_PRINTLN("Get Temperatures ########");
 
       int16_t averageTemp = 0;
       for (int i=1; i<=numberSensors; i++){
@@ -189,16 +189,16 @@ static void notifyCallback
 
       RENOGYtemperature = String((float)(averageTemp/numberSensors) * 0.1);
 
-      Serial.print("Temperatur: ");
-      Serial.println(RENOGYtemperature);
+      L_PRINT("Temperatur: ");
+      L_PRINTLN(RENOGYtemperature);
       
       // flexiblePollingSpeed = 500; // next call for host switch in 20s
     }
 
     if(responseData=="getCellVolts") {
 
-      Serial.println("----------");
-      Serial.println("Get Cell Volts ########");
+      L_PRINTLN("----------");
+      L_PRINTLN("Get Cell Volts ########");
       float cellVolts[4];
       // Wir prüfen, ob das Paket lang genug ist (Modbus Header + 4 Zellen)
       if (length > 10 && pData[2] == 0x22) {
@@ -215,28 +215,28 @@ static void notifyCallback
           // Umrechnen in Volt
           cellVolts[i] = rawVoltage/10.0;
           
-          // Serial.printf("Device %d - Zelle %d: %.2f V\n", deviceAddressesNumber, i + 1, cellVolts[i]);
+          // L_PRINTF("Device %d - Zelle %d: %.2f V\n", deviceAddressesNumber, i + 1, cellVolts[i]);
           RENOGYcellvolts += String(cellVolts[i], 2);
           if (i < 3) {
             RENOGYcellvolts += ", ";
           }
         }
-        Serial.print("Cellvolts: ");
-        Serial.println(RENOGYcellvolts);
+        L_PRINT("Cellvolts: ");
+        L_PRINTLN(RENOGYcellvolts);
       }
       // flexiblePollingSpeed = 500; // next call for host switch in 20s
     }
     /* pData Debug... */
-    // Serial.println("Hex data received:"); 
+    // L_PRINTLN("Hex data received:"); 
     // for (int i=1; i<=length; i++){
-    //   Serial.printf("%02x", pData[i-1]);
+    //   L_PRINTF("%02x", pData[i-1]);
     //   if(i % 2 == 0){
-    //     Serial.print(" "); 
+    //     L_PRINT(" "); 
     //   }
     // }
 
-    Serial.println(" "); 
-    Serial.println("END notifyCallback ########");
+    L_PRINTLN(" "); 
+    L_PRINTLN("END notifyCallback ########");
     delay(5);
     
     sendMqttData();
@@ -244,18 +244,23 @@ static void notifyCallback
 
 bool startWifiConnectionProcess() {
   while (!startWiFiMulti() && connectionRetryCount < connectionMaxRetries) {
-    Serial.printf("Verbindungsversuch %d/%d \n", connectionRetryCount+1, connectionMaxRetries);
+    L_PRINTF("Verbindungsversuch %d/%d \n", connectionRetryCount+1, connectionMaxRetries);
     connectionRetryCount++;
   }
   
   if (connectionRetryCount >= 20) {
-    Serial.println("Wifi was not connected, wait 30s and than restart ESP...");
+    L_PRINTLN("Wifi was not connected, wait 30s and than restart ESP...");
     delay(30000);
     ESP.restart();
   } else {
     wifiSSIDValue = WiFi.SSID() + " " + WiFi.localIP().toString();
-    Serial.printf("Wifi connection established: %s \n", wifiSSIDValue.c_str());
+    L_PRINTF("Wifi connection established: %s \n", wifiSSIDValue.c_str());
     setClock();
+    
+    telnet.onConnect(onTelnetConnect);
+    telnet.onInputReceived(onTelnetInput);
+    telnet.onDisconnect(onTelnetDisconnect);
+    telnet.begin();
 
     if ( startMQTT()) {
       initTempSensor();
@@ -271,13 +276,13 @@ bool startWifiConnectionProcess() {
 
 class MyClientCallback : public BLEClientCallbacks {
   void onConnect(BLEClient* pclient) {
-    Serial.print("Verbunden mit: ");
-    Serial.println(pClients[0]->getPeerAddress().toString().c_str());
+    L_PRINT("Verbunden mit: ");
+    L_PRINTLN(pClients[0]->getPeerAddress().toString().c_str());
   }
 
   void onDisconnect(BLEClient* pclient) {
     doBatteryCall = false;
-    Serial.println("onDisconnect");
+    L_PRINTLN("onDisconnect");
   }
 };
 
@@ -293,25 +298,25 @@ void calculatePower(int deviceIdxLocal ) {
   RENOGYpower = "0";
 
   int powerTemp = 0;
-  Serial.println("----");
+  L_PRINTLN("----");
   for (int i = 0; i < DEVICEAMOUNT; i++)
   {
-    Serial.print("AVG Battery Seperate Power  (");
-    Serial.print(deviceAddresses[i]);
-    Serial.print("): ");
-    Serial.print(" current:");
-    Serial.print(current[i]);
-    Serial.print(" power:");
-    Serial.println(power[i]);
+    L_PRINT("AVG Battery Seperate Power  (");
+    L_PRINT(deviceAddresses[i]);
+    L_PRINT("): ");
+    L_PRINT(" current:");
+    L_PRINT(current[i]);
+    L_PRINT(" power:");
+    L_PRINTLN(power[i]);
     powerTemp += power[i];
     RENOGYpowerString += String(power[i]) + "W ";
     RENOGYvoltageString += String(voltageA[i]) + "V ";
     RENOGYtemperatureString += String(temperature[i]) + "°C ";
   }
 
-  Serial.print("AVG Battery Summ of power: ");
-  Serial.print(powerTemp);
-  Serial.println("");
+  L_PRINT("AVG Battery Summ of power: ");
+  L_PRINT(powerTemp);
+  L_PRINTLN("");
   RENOGYpower = String(powerTemp);
   
 }
@@ -321,30 +326,30 @@ void calculateAvgCHARGELEVEL(int deviceIdxLocal) {
   RENOGYCHARGELEVELString = "";
   RENOGYAvgCHARGELEVEL = "0";
   int avgLVLTemp = 0;
-  Serial.println("----");
+  L_PRINTLN("----");
   for (int i = 0; i < DEVICEAMOUNT; i++)
   {
-    Serial.print("AVG Battery Seperate Chargelevel (");
-    Serial.print(deviceAddresses[i]);
-    Serial.print("): ");
-    Serial.println(chargelevel[i]);
+    L_PRINT("AVG Battery Seperate Chargelevel (");
+    L_PRINT(deviceAddresses[i]);
+    L_PRINT("): ");
+    L_PRINTLN(chargelevel[i]);
     avgLVLTemp += chargelevel[i];
     RENOGYCHARGELEVELString += String(chargelevel[i]) + "% ";
   }
   avgLVLTemp = avgLVLTemp/DEVICEAMOUNT;
-  Serial.print("AVG Battery CHARGELEVEL: ");
-  Serial.print(avgLVLTemp);
+  L_PRINT("AVG Battery CHARGELEVEL: ");
+  L_PRINT(avgLVLTemp);
   RENOGYAvgCHARGELEVEL = String(avgLVLTemp);
 }
 
 bool connectToDevice(int id, NimBLEAddress address) {
-  Serial.println("-connectToDevice-----------------");
-  Serial.printf("Verbindung zu Device %d (%s)...\n", id, address.toString().c_str());
+  L_PRINTLN("-connectToDevice-----------------");
+  L_PRINTF("Verbindung zu Device %d (%s)...\n", id, address.toString().c_str());
 
 // --- SCHRITT 0: Aufräumen (Sehr wichtig für Stabilität) ---
   // Falls für diese ID noch ein alter Client existiert, löschen wir ihn sauber.
   if (myDevices[id].pClient != nullptr) {
-      Serial.println("Alten Client gefunden, lösche ihn...");
+      L_PRINTLN("Alten Client gefunden, lösche ihn...");
       NimBLEDevice::deleteClient(myDevices[id].pClient);
       myDevices[id].pClient = nullptr;
       myDevices[id].connected = false;
@@ -354,14 +359,14 @@ bool connectToDevice(int id, NimBLEAddress address) {
   myDevices[id].pClient = NimBLEDevice::createClient();
   
   if (!myDevices[id].pClient) {
-      Serial.println("Konnte keinen neuen Client erstellen (Speichermangel?)");
+      L_PRINTLN("Konnte keinen neuen Client erstellen (Speichermangel?)");
       return false;
   }
   
   // --- SCHRITT 2: Verbinden ---
   // Wir nutzen direkt das 'address' Objekt, das wir bekommen haben
   if (!myDevices[id].pClient->connect(address, 15000)) {
-      Serial.println("Verbindung zu Device fehlgeschlagen.");
+      L_PRINTLN("Verbindung zu Device fehlgeschlagen.");
       NimBLEDevice::deleteClient(myDevices[id].pClient);
       myDevices[id].pClient = nullptr;
       return false;
@@ -372,7 +377,7 @@ bool connectToDevice(int id, NimBLEAddress address) {
   BLERemoteService* pReadSvc  = myDevices[id].pClient->getService(serviceReadUUID);
 
   if (pWriteSvc == nullptr || pReadSvc == nullptr) {
-      Serial.println("Services nicht gefunden.");
+      L_PRINTLN("Services nicht gefunden.");
       myDevices[id].pClient->disconnect();
       NimBLEDevice::deleteClient(myDevices[id].pClient);
       myDevices[id].pClient = nullptr;
@@ -384,7 +389,7 @@ bool connectToDevice(int id, NimBLEAddress address) {
   myDevices[id].pNotifyChar = pReadSvc->getCharacteristic(NOTIFY_UUID);
 
   if (myDevices[id].pWriteChar == nullptr || myDevices[id].pNotifyChar == nullptr) {
-      Serial.println("Characteristics nicht gefunden.");
+      L_PRINTLN("Characteristics nicht gefunden.");
       myDevices[id].pClient->disconnect();
       NimBLEDevice::deleteClient(myDevices[id].pClient);
       myDevices[id].pClient = nullptr;
@@ -395,13 +400,13 @@ bool connectToDevice(int id, NimBLEAddress address) {
   if (myDevices[id].pNotifyChar->canNotify()) {
       // NimBLE 2.x nutzt 'subscribe' statt 'registerForNotifications'
       if (!myDevices[id].pNotifyChar->subscribe(true, notifyCallback)) {
-          Serial.println("Subscribe fehlgeschlagen.");
+          L_PRINTLN("Subscribe fehlgeschlagen.");
           myDevices[id].pClient->disconnect();
           NimBLEDevice::deleteClient(myDevices[id].pClient);
           myDevices[id].pClient = nullptr;
           return false;
       }
-      Serial.println("Verbindung zu Device und Notifications aktiviert.");
+      L_PRINTLN("Verbindung zu Device und Notifications aktiviert.");
   }
 
   myDevices[id].connected = true;
@@ -410,20 +415,20 @@ bool connectToDevice(int id, NimBLEAddress address) {
 
 // runs after ESP restart and after a complete read out of all devices
 void setupDeviceAndConnect() {
-  Serial.println("-setupDeviceAndConnect-----------------");
+  L_PRINTLN("-setupDeviceAndConnect-----------------");
   doBatteryCall = false;
   readExternalTemperatureSensors();
  
   size_t ramVor = ESP.getFreeHeap();
-  Serial.print("Heap setupDeviceAndConnect: "); Serial.println(ESP.getFreeHeap());  
-  Serial.println("-Starte Verbindung zu Device-----------");
+  L_PRINT("Heap setupDeviceAndConnect: "); L_PRINTLN(ESP.getFreeHeap());  
+  L_PRINTLN("-Starte Verbindung zu Device-----------");
   for(int i = 0; i < DEVICEAMOUNT; i++) {
     connectToDevice(i, NimBLEAddress(deviceAddresses[i], 0));
   }
   
   // read external Sensors after every device reconnect
   getExternalTemperatureSensors();
-  Serial.println("Warte einige Sekunden bis zum Abfragen der Werte...");
+  L_PRINTLN("Warte einige Sekunden bis zum Abfragen der Werte...");
   delay(5000);
   callData = "getLevels";
   doBatteryCall = true;
@@ -431,6 +436,7 @@ void setupDeviceAndConnect() {
 
 
 void setup() {
+  Serial.begin(115200);
   xTaskCreatePinnedToCore(
     myWatchdog,   /* Task function. */
     "Task1",     /* name of task. */
@@ -439,6 +445,12 @@ void setup() {
     1,           /* priority of the task */
     &Task1,      /* Task handle to keep track of created task */
     0);          /* pin task to core 0 */    
+
+  if (telnet.begin()) {
+    Serial.println("ESPTelnet gestartet.");
+  } else {
+    Serial.println("Fehler beim Starten von ESPTelnet.");
+  }
 
   // Bluetooth-Controller-Speicher freigeben, falls er "feststeckt"
   // (Nur nötig, wenn ein BT Fehler nach einem Soft-Reset auftritt)
@@ -454,21 +466,21 @@ void setup() {
   // für schnellere Datenübertragung
   NimBLEDevice::setMTU(247);
 
-  Serial.begin(115200);
-  Serial.println("Starting Arduino BLE Client application...");
+  L_PRINTLN("Starting Arduino BLE Client application...");
 
   if(startWifiConnectionProcess()){
     return;
   }
 
-  Serial.println("");
-  Serial.println("Mqtt was not connected, wait 30s and than restart ESP...");
+  L_PRINTLN("");
+  L_PRINTLN("Mqtt was not connected, wait 30s and than restart ESP...");
   getClockTime();
   delay(30000);
   ESP.restart();
 } // End of setup.
 
 void loop() {
+  telnet.loop();
   espMQTT.update();  // should be called
 
   if(Serial.available()){
@@ -486,8 +498,8 @@ void loop() {
 
   if (millis() > timerTickerForWatchDog + 300000*2) {
     // force a restart, if there is a problem somewhere, while we dont sent data after 60s
-    Serial.println("");
-    Serial.println("watchdog: Timeout exceeded, ready for reset in 15s...");
+    L_PRINTLN("");
+    L_PRINTLN("watchdog: Timeout exceeded, ready for reset in 15s...");
     getClockTime();
     delay(15000);
     ESP.restart();
@@ -498,8 +510,8 @@ void loop() {
 
     if (millis() > timerTicker2 + flexiblePollingSpeed) {
       actualTimeStamp = getClockTime();
-      Serial.println("-loop: Devices connected, asking devices for values:-----------------");
-      Serial.println(callData);
+      L_PRINTLN("-loop: Devices connected, asking devices for values:-----------------");
+      L_PRINTLN(callData);
 
       if (callData == "getLevels") {
        if (checkWiFiConnection()) {
@@ -543,7 +555,7 @@ void loop() {
               // 3. Den Zeiger auf NULL setzen, damit keine Geister-Zugriffe passieren
               myDevices[i].pClient = nullptr;
               myDevices[i].connected = false;
-              Serial.printf("Device %d [%s] erfolgreich getrennt und Speicher freigegeben.\n", i, macAddr.c_str());
+              L_PRINTF("Device %d [%s] erfolgreich getrennt und Speicher freigegeben.\n", i, macAddr.c_str());
             }
             myDevices[i].connected = false; // Status-Flag zurücksetzen
           }
@@ -560,15 +572,15 @@ void loop() {
 } // End of loop
 
 void sendCommandToDevice(int deviceIdx, int commandIdx, String responseDataLocal) {
-  Serial.println("-sendCommandToDevice-----------------");
+  L_PRINTLN("-sendCommandToDevice-----------------");
   responseData = responseDataLocal;
   // Sicherheitscheck: Ist der Index gültig und das Device verbunden?
   if (deviceIdx >= DEVICEAMOUNT || !myDevices[deviceIdx].connected || myDevices[deviceIdx].pWriteChar == nullptr) {
-      Serial.printf("Fehler: Device %d nicht bereit!\n", deviceIdx);
+      L_PRINTF("Fehler: Device %d nicht bereit!\n", deviceIdx);
       return;
   }
 
-  Serial.printf("Sende Command %d an Device %d...\n", commandIdx, deviceIdx);
+  L_PRINTF("Sende Command %d an Device %d...\n", commandIdx, deviceIdx);
   
   // Hier wird die Charakteristik des spezifischen Devices aus dem Array genutzt
   myDevices[deviceIdx].pWriteChar->writeValue(commands[commandIdx], 8);
@@ -577,10 +589,10 @@ void sendCommandToDevice(int deviceIdx, int commandIdx, String responseDataLocal
 // check for wifi and mqtt connection, true if connectes
 // restart device, if connection is gone
 boolean checkWiFiConnection() {
-  Serial.println("-checkWiFiConnection-----------------");
+  L_PRINTLN("-checkWiFiConnection-----------------");
 
   if ( checkWiFi()) {
-    Serial.println("Wifi connection still exist.");
+    L_PRINTLN("Wifi connection still exist.");
     // in case mqtt connection is lost, restart device
     if (!espMQTT.isConnected()) {
       delay(10000);
@@ -588,7 +600,7 @@ boolean checkWiFiConnection() {
       // if ( checkWiFi()) {
       // try to reconnect to mqtt
       if (!startMQTT()) {
-        Serial.println("MQTT Connection lost, restart system");
+        L_PRINTLN("MQTT Connection lost, restart system");
         ESP.restart(); 
       } else {
         return true;
@@ -600,14 +612,14 @@ boolean checkWiFiConnection() {
     }
 
   } else {
-    Serial.println("Wifi Connection lost, restart system");
+    L_PRINTLN("Wifi Connection lost, restart system");
     ESP.restart();
     return false;
   }
 }
 
 void getExternalTemperatureSensors() {
-  Serial.println("-getExternalTemperatureSensors-----------------");
+  L_PRINTLN("-getExternalTemperatureSensors-----------------");
 
   temperaturArray = getTemperatureValues();
   bool dontSend = false;
@@ -616,7 +628,7 @@ void getExternalTemperatureSensors() {
     float aktuellerWert = *(temperaturArray + i);
     if (aktuellerWert < -50.0) {
       dontSend = true;
-      Serial.println("dontSend = true");
+      L_PRINTLN("dontSend = true");
     }
     // Prüfen, ob der Wert gültig ist (nicht -127.8)
     if (aktuellerWert > -50.0) {
@@ -627,22 +639,22 @@ void getExternalTemperatureSensors() {
           externalTempsensor2 = aktuellerWert;
       }
     }
-    Serial.print("External Temperature Sensor ");
-    Serial.print(i+1);
-    Serial.print(": ");
-    Serial.print(*(temperaturArray+i));
-    Serial.println("   ");
+    L_PRINT("External Temperature Sensor ");
+    L_PRINT(i+1);
+    L_PRINT(": ");
+    L_PRINT(*(temperaturArray+i));
+    L_PRINTLN("   ");
   }
 
   if (!dontSend){
     sendMqttDataExternalTemp();
   }
   
-  Serial.println("--End external Temperature Sensors--");
+  L_PRINTLN("--End external Temperature Sensors--");
 }
 
 void sendRenogyMqttDiscovery() {
-  Serial.println("-sendRenogyMqttDiscovery-----------------");
+  L_PRINTLN("-sendRenogyMqttDiscovery-----------------");
   // Gemeinsames Device-Objekt für alle Renogy-Sensoren
   String renogyDevice = ",\"dev\":{\"ids\":[\"renogy_system_esp32\"],\"name\":\"Renogy Battery System\",\"mf\":\"Renogy\",\"mdl\":\"Smart Lithium\"}";
 
@@ -708,7 +720,7 @@ void publishSensor(String id, String name, String dev_cla, String unit, String d
 }
 
 void sendMqttData() {
-    Serial.println("-sendMqttData-----------------");
+    L_PRINTLN("-sendMqttData-----------------");
     mqttSend("renogy/sensor/renogy_last_update", actualTimeStamp);
     mqttSend("renogy/sensor/renogy_current", String(RENOGYcurrent));
     mqttSend("renogy/sensor/renogy_power", RENOGYpower);
@@ -728,18 +740,18 @@ void sendMqttData() {
     mqttSend("renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
     mqttSend("renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
     
-    Serial.println("Mqtt data was send...");
-    Serial.println("---------------------");
+    L_PRINTLN("Mqtt data was send...");
+    L_PRINTLN("---------------------");
 }
 
 void sendMqttDataExternalTemp() {
-    Serial.println("-sendMqttDataExternalTemp-----------------");
+    L_PRINTLN("-sendMqttDataExternalTemp-----------------");
     mqttSend("renogy/sensor/renogy_last_update", actualTimeStamp);
     mqttSend("renogy/sensor/external_temperature1", String(externalTempsensor1));
     mqttSend("renogy/sensor/external_temperature2", String(externalTempsensor2));
     mqttSend("renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);    
-    Serial.println("Mqtt data was send...");
-    Serial.println("---------------------");
+    L_PRINTLN("Mqtt data was send...");
+    L_PRINTLN("---------------------");
 }
 
 
@@ -747,17 +759,17 @@ void myWatchdog( void * pvParameters ){
   for(;;){
     // lockVariable();
     if ((millis() > timerTickerDisplay + 60000)) {
-        Serial.println("-myWatchdog-----------------");
+        L_PRINTLN("-myWatchdog-----------------");
         watchDogTicks++; // will increment ticks every minute
         timerTickerDisplay = millis();
-        Serial.print("watchdog: watchDogTicks ");
-        Serial.print(watchDogTicks);
+        L_PRINT("watchdog: watchDogTicks ");
+        L_PRINT(watchDogTicks);
         //restart after x*60s if webpagecall was not successful with 200 was sent succesfully.
-        Serial.println(": will increment ticks every minute"); 
-        Serial.println("");
+        L_PRINTLN(": will increment ticks every minute"); 
+        L_PRINTLN("");
 
         if (watchDogTicks > 5) { // restart after x*60s if no http request was succesfully
-          Serial.println("State undefined: Restart controller now.");
+          L_PRINTLN("State undefined: Restart controller now.");
           ESP.restart();
         }
     }
@@ -767,7 +779,7 @@ void myWatchdog( void * pvParameters ){
 
 void checkDataConnection() {
 
-  Serial.println("-checkDataConnection-----------------");
+  L_PRINTLN("-checkDataConnection-----------------");
   size_t ramVor = ESP.getFreeHeap();
 
   // Scope starten
@@ -788,13 +800,13 @@ void checkDataConnection() {
           String payload = http.getString();
           watchDogTicks = 0;
           watchdogSuccessCounter++;
-          Serial.printf(" watchdog: HTTP request for watchdog was 200. Counter: %d\n", watchdogSuccessCounter);
-          Serial.printf(" watchdog: %d, RAM frei: %d\n", httpCode, ESP.getFreeHeap());
+          L_PRINTF("watchdog: HTTP request for watchdog was 200. Counter: %d\n", watchdogSuccessCounter);
+          L_PRINTF("watchdog: %d, RAM frei: %d\n", httpCode, ESP.getFreeHeap());
         }
         else {
-          // Serial.println(httpCode);
-          Serial.printf(" watchdog: HTTP request for watchdog has an Error. Counter: %d\n", watchdogSuccessCounter);
-          Serial.printf(" watchdog: %d, RAM frei: %d\n", httpCode, ESP.getFreeHeap());
+          // L_PRINTLN(httpCode);
+          L_PRINTF("watchdog: HTTP request for watchdog has an Error. Counter: %d\n", watchdogSuccessCounter);
+          L_PRINTF("watchdog: %d, RAM frei: %d\n", httpCode, ESP.getFreeHeap());
         }
 
         http.end(); // Schließt die Verbindung, behält aber den Buffer bei
@@ -804,5 +816,5 @@ void checkDataConnection() {
   } 
 
   size_t ramNach = ESP.getFreeHeap();
-  Serial.printf("watchdog: Block-Leck: %d Bytes | RAM frei: %d\n", (int)ramVor - (int)ramNach, ramNach);
+  L_PRINTF("watchdog: Block-Leck: %d Bytes | RAM frei: %d\n", (int)ramVor - (int)ramNach, ramNach);
 }

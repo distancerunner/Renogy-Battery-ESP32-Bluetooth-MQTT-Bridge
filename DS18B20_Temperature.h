@@ -21,14 +21,13 @@ static float Temperatur[AMOUNT_DS18B20];
 int amountOfReallyConnectedSensors = 0;
 
 void initTempSensor(void) {
-  Serial.println("-initTempSensor-----------------");
+  L_PRINTLN("-initTempSensor-----------------");
   
   if ((AMOUNT_DS18B20 > 0)) {
     myDS18B20.begin();
-    Serial.print("Amount of connected External Temperature Sensors: ");
+    L_PRINT("Amount of connected External Temperature Sensors: ");
     amountOfReallyConnectedSensors = myDS18B20.getDeviceCount();
-    Serial.println(amountOfReallyConnectedSensors, DEC);
-    Serial.println("----------------------------------");
+    L_PRINTLN(amountOfReallyConnectedSensors + " " + DEC);
  
     for(byte i=0 ;i < amountOfReallyConnectedSensors; i++) {
       // TemperaturFallback[i] = Fallback_Value;
@@ -40,7 +39,7 @@ void initTempSensor(void) {
 }
 
 void readExternalTemperatureSensors(void) {
-  Serial.println("-readTempSensor-External Temperature-------------");
+  L_PRINTLN("-readTempSensor-External Temperature-------------");
   if ((AMOUNT_DS18B20 > 0)) {
     myDS18B20.requestTemperatures();
     for(byte i=0 ;i < AMOUNT_DS18B20; i++) {
@@ -49,7 +48,7 @@ void readExternalTemperatureSensors(void) {
         Temperatur[i] = myDS18B20.getTempCByIndex(i);
         if (Temperatur[i] == DEVICE_DISCONNECTED_C) {
           // if error occures, set a value as fallback
-          Serial.println("ERROR: DS18B20 Tempsensor read error, set dummy value -127.8");
+          L_PRINTLN("ERROR: DS18B20 Tempsensor read error, set dummy value -127.8");
           Temperatur[i] = -127.8;
         }
       }
