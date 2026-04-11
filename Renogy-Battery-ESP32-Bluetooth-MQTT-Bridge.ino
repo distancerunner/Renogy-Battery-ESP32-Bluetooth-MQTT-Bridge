@@ -50,6 +50,7 @@ String wifiSSIDValue="noSSID";
 String actualTimeStamp="00:00:00";
 
 
+bool enableMqttSending = false;
 int flexiblePollingSpeed = 500;
 uint8_t watchdogSuccessCounter = 0;
 
@@ -543,6 +544,7 @@ void loop() {
         callData = "endConnectionAndStartAgain";
       }
       else if (callData == "endConnectionAndStartAgain") {
+        
         for(int i = 0; i < DEVICEAMOUNT; i++) {
         // Prüfen, ob der Client-Zeiger existiert (nicht NULL ist)
           if (myDevices[i].pClient != nullptr) {
@@ -564,6 +566,7 @@ void loop() {
         }
         checkDataConnection();
         doBatteryCall = false;
+        enableMqttSending = true;
         setupDeviceAndConnect();
       }
 
@@ -687,42 +690,10 @@ void sendRenogyMqttDiscovery() {
   publishSensor("renogy_deviceaddressesnumber", "Renogy Devicee Nummer", "", "", renogyDevice, "renogy");
 }
 
-// Hilfsfunktion zum Senden der Config
-void publishSensor(String id, String name, String dev_cla, String unit, String device, String prefix) {
-    // Topic für Home Assistant Discovery
-    String configTopic = "homeassistant/sensor/" + id + "/config";
-    
-    // Das Topic, auf dem der ESP tatsächlich seine Daten sendet
-    String stateTopic = prefix + "/sensor/" + id;
-    
-    String payload = "{";
-    payload += "\"name\":\"" + name + "\",";
-    payload += "\"stat_t\":\"" + stateTopic + "\",";
-    payload += "\"uniq_id\":\"" + id + "_esp32\",";
-    
-    if (dev_cla != "") payload += "\"dev_cla\":\"" + dev_cla + "\",";
-    if (unit != "")    payload += "\"unit_of_meas\":\"" + unit + "\",";
-    
-    // Wichtig für das Energy Dashboard oder Langzeit-Statistiken
-    if (dev_cla == "power" || dev_cla == "battery") {
-        payload += "\"stat_cla\":\"measurement\",";
-    }
-
-    // Wichtig für das Energy Dashboard oder Langzeit-Statistiken
-    if (dev_cla == "energy") {
-        payload += "\"stat_cla\":\"total\",";
-    }
-
-    payload += "\"val_tpl\":\"{{ value }}\"";
-    payload += device;
-    payload += "}";
-
-    // Senden mit Retain (3. Parameter true)
-    mqttSend(configTopic, payload);
-}
-
 void sendMqttData() {
-    L_PRINTLN("-sendMqttData-----------------");
+  L_PRINTLN("-mqttSend: sendMqttData---------");
+  
+  if(enableMqttSending){
     mqttSend("renogy/sensor/renogy_last_update", actualTimeStamp);
     mqttSend("renogy/sensor/renogy_current", String(RENOGYcurrent));
     mqttSend("renogy/sensor/renogy_power", RENOGYpower);
@@ -736,24 +707,20 @@ void sendMqttData() {
     mqttSend("renogy/sensor/renogy_cell_voltage", String(RENOGYcellvolts));
     mqttSend("renogy/sensor/renogy_chargelevel", String(RENOGYchargeLevel));
     mqttSend("renogy/sensor/renogy_capacity", String(RENOGYcapacity));
+  }
 
-    mqttSend("renogy/sensor/renogy_deviceaddressesnumber", String(deviceAddressesNumber));
+  mqttSend("renogy/sensor/renogy_deviceaddressesnumber", String(deviceAddressesNumber));
 
-    mqttSend("renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
-    mqttSend("renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
-    
-    L_PRINTLN("Mqtt data was send...");
-    L_PRINTLN("---------------------");
+  mqttSend("renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
+  mqttSend("renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
 }
 
 void sendMqttDataExternalTemp() {
-    L_PRINTLN("-sendMqttDataExternalTemp-----------------");
-    mqttSend("renogy/sensor/renogy_last_update", actualTimeStamp);
-    mqttSend("renogy/sensor/external_temperature1", String(externalTempsensor1));
-    mqttSend("renogy/sensor/external_temperature2", String(externalTempsensor2));
-    mqttSend("renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);    
-    L_PRINTLN("Mqtt data was send...");
-    L_PRINTLN("---------------------");
+  L_PRINTLN("-mqttSend: sendMqttDataExternalTemp---------");
+  mqttSend("renogy/sensor/renogy_last_update", actualTimeStamp);
+  mqttSend("renogy/sensor/external_temperature1", String(externalTempsensor1));
+  mqttSend("renogy/sensor/external_temperature2", String(externalTempsensor2));
+  mqttSend("renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);    
 }
 
 

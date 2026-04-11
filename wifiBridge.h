@@ -115,24 +115,31 @@ bool isConnected() {
   return espMQTT.connected();
 }
 
-void mqttSend(String sensor, String value) {
-    espMQTT.publish(sensor.c_str(), value.c_str(),true);
+void mqttSend(const String &sensor, const String &value, bool print_log=true) {
+    if (espMQTT.connected()) {
+      espMQTT.publish(sensor.c_str(), value.c_str(), true);
+      if(print_log){
+        L_PRINTF("mqttSend: %s - %s \n", sensor.c_str(), value.c_str());
+      }
+    }
 }
 
 boolean startMQTT() {
     L_PRINTLN("-startMQTT-----------------");
+    espMQTT.setServer(mqtt_server[0], 1883);
     L_PRINTLN("connecting to mqtt host...");
     while (!espMQTT.connected() && connectionRetryCount < connectionMaxRetries) {
-        L_PRINTF("connect to mqtt, try number: %d/%d \n", connectionRetryCount + 1, connectionMaxRetries);
-        
-        if (espMQTT.connect(mqtt_clientID[0], mqtt_username[0], mqtt_pw[0])) {
-            L_PRINTLN("mqtt is connected!");
-            return true;
-        } else {
-            L_PRINTF("failed, rc=%d - retry in 5s\n", espMQTT.state());
-            delay(5000);
-        }
-        connectionRetryCount++;
+      L_PRINTF("connect to mqtt, try number: %d/%d \n", connectionRetryCount + 1, connectionMaxRetries);
+      
+      if (espMQTT.connect(mqtt_clientID[0], mqtt_username[0], mqtt_pw[0])) {
+        L_PRINTLN("mqtt is connected!");
+        return true;
+      } else {
+        // Zeigt den Fehlercode (z.B. -2 für nicht erreichbar, 5 für falsches Passwort)
+        L_PRINTF("failed, rc=%d - retry in 5s\n", espMQTT.state());
+        delay(5000);
+      }
+      connectionRetryCount++;
     }
     return false;
 }
@@ -159,4 +166,38 @@ void onTelnetConnect(String ip) {
 
 void onTelnetDisconnect(String ip) {
   isAuthenticated = false; // Bei Trennung wieder sperren
+}
+
+
+// Hilfsfunktion zum Senden der Config
+void publishSensor(String id, String name, String dev_cla, String unit, String device, String prefix) {
+    // Topic für Home Assistant Discovery
+    String configTopic = "homeassistant/sensor/" + id + "/config";
+    
+    // Das Topic, auf dem der ESP tatsächlich seine Daten sendet
+    String stateTopic = prefix + "/sensor/" + id;
+    
+    String payload = "{";
+    payload += "\"name\":\"" + name + "\",";
+    payload += "\"stat_t\":\"" + stateTopic + "\",";
+    payload += "\"uniq_id\":\"" + id + "_esp32\",";
+    
+    if (dev_cla != "") payload += "\"dev_cla\":\"" + dev_cla + "\",";
+    if (unit != "")    payload += "\"unit_of_meas\":\"" + unit + "\",";
+    
+    // Wichtig für das Energy Dashboard oder Langzeit-Statistiken
+    if (dev_cla == "power" || dev_cla == "battery") {
+        payload += "\"stat_cla\":\"measurement\",";
+    }
+
+    // Wichtig für das Energy Dashboard oder Langzeit-Statistiken
+    if (dev_cla == "energy") {
+        payload += "\"stat_cla\":\"total\",";
+    }
+
+    payload += "\"val_tpl\":\"{{ value }}\"";
+    payload += device;
+    payload += "}";
+
+    mqttSend(configTopic, payload, false);
 }

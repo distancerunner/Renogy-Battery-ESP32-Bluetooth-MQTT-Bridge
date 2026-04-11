@@ -27,7 +27,7 @@ void initTempSensor(void) {
     myDS18B20.begin();
     L_PRINT("Amount of connected External Temperature Sensors: ");
     amountOfReallyConnectedSensors = myDS18B20.getDeviceCount();
-    L_PRINTLN(amountOfReallyConnectedSensors + " " + DEC);
+    L_PRINTLN(String(amountOfReallyConnectedSensors));
  
     for(byte i=0 ;i < amountOfReallyConnectedSensors; i++) {
       // TemperaturFallback[i] = Fallback_Value;
