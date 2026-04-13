@@ -71,6 +71,12 @@ void setClock() {
   getClockTime();
 }
 
+String readWifiInformation() {
+  String wifiSSIDValue = WiFi.SSID() + " " + WiFi.localIP().toString();
+  L_PRINTF("Wifi connection established: %s \n", wifiSSIDValue.c_str());
+  return wifiSSIDValue;
+}
+
 boolean startWiFiMulti() {
   L_PRINTLN("-startWiFiMulti-----------------");
   L_PRINTLN("Number of ssid: " + String(ssid_count));
@@ -89,6 +95,7 @@ boolean startWiFiMulti() {
 
     if ((WiFiMultiElement.run() == WL_CONNECTED)) {
       L_PRINTLN("WiFi connected!!!");
+      readWifiInformation();
       return true;
     }
   }

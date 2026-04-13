@@ -52,6 +52,7 @@ String actualTimeStamp="00:00:00";
 
 bool enableMqttSending = false;
 int flexiblePollingSpeed = 500;
+int pollingBetweenDevicesSpeed = 2000;
 uint8_t watchdogSuccessCounter = 0;
 
 static uint32_t timerTickerDisplay = millis();
@@ -174,8 +175,6 @@ static void notifyCallback
 
       calculatePower(deviceAddressesNumber);
       calculateAvgCHARGELEVEL(deviceAddressesNumber);
-   
-      // flexiblePollingSpeed = 500; // next call for data in 2s
     }
 
     if(responseData=="getTemperatures") {
@@ -194,8 +193,6 @@ static void notifyCallback
 
       L_PRINT("Temperatur: ");
       L_PRINTLN(RENOGYtemperature);
-      
-      // flexiblePollingSpeed = 500; // next call for host switch in 20s
     }
 
     if(responseData=="getCellVolts") {
@@ -227,7 +224,6 @@ static void notifyCallback
         L_PRINT("Cellvolts: ");
         L_PRINTLN(RENOGYcellvolts);
       }
-      // flexiblePollingSpeed = 500; // next call for host switch in 20s
     }
     /* pData Debug... */
     // L_PRINTLN("Hex data received:"); 
@@ -256,9 +252,14 @@ bool startWifiConnectionProcess() {
     delay(30000);
     ESP.restart();
   } else {
-    wifiSSIDValue = WiFi.SSID() + " " + WiFi.localIP().toString();
-    L_PRINTF("Wifi connection established: %s \n", wifiSSIDValue.c_str());
+    wifiSSIDValue = readWifiInformation();
     setClock();
+
+    if (telnet.begin()) {
+      Serial.println("ESPTelnet gestartet.");
+    } else {
+      Serial.println("Fehler beim Starten von ESPTelnet.");
+    }
     
     telnet.onConnect(onTelnetConnect);
     telnet.onInputReceived(onTelnetInput);
@@ -431,6 +432,7 @@ void setupDeviceAndConnect() {
   
   // read external Sensors after every device reconnect
   getExternalTemperatureSensors();
+  wifiSSIDValue = readWifiInformation();
   L_PRINTLN("Warte einige Sekunden bis zum Abfragen der Werte...");
   delay(5000);
   callData = "getLevels";
@@ -440,6 +442,7 @@ void setupDeviceAndConnect() {
 
 void setup() {
   Serial.begin(115200);
+  delay(1000);
   xTaskCreatePinnedToCore(
     myWatchdog,   /* Task function. */
     "Task1",     /* name of task. */
@@ -449,20 +452,14 @@ void setup() {
     &Task1,      /* Task handle to keep track of created task */
     0);          /* pin task to core 0 */    
 
-  if (telnet.begin()) {
-    Serial.println("ESPTelnet gestartet.");
-  } else {
-    Serial.println("Fehler beim Starten von ESPTelnet.");
-  }
-
   // Bluetooth-Controller-Speicher freigeben, falls er "feststeckt"
   // (Nur nötig, wenn ein BT Fehler nach einem Soft-Reset auftritt)
   // esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
-
+  delay(1000);
   if (!NimBLEDevice::isInitialized()) {
     NimBLEDevice::init("ESP32_Renogy_Monitor");
   }
-
+  delay(1000);
   // ESP_PWR_LVL_P9 entspricht +9dBm (Maximum)
   // NimBLEDevice::setPower(ESP_PWR_LVL_P9);
   
@@ -520,7 +517,7 @@ void loop() {
        if (checkWiFiConnection()) {
           for (int i = 0; i < DEVICEAMOUNT; i++) {
             sendCommandToDevice(i, 0,callData);
-            delay(1000);
+            delay(pollingBetweenDevicesSpeed );
           }
         }
         callData = "getCellVolts";
@@ -529,7 +526,7 @@ void loop() {
           if (checkWiFiConnection()) {
           for (int i = 0; i < DEVICEAMOUNT; i++) {
             sendCommandToDevice(i, 1,callData);
-            delay(1000);
+            delay(pollingBetweenDevicesSpeed );
           }
         }
         callData = "getTemperatures";
@@ -538,7 +535,7 @@ void loop() {
         if (checkWiFiConnection()) { 
           for (int i = 0; i < DEVICEAMOUNT; i++) {
             sendCommandToDevice(i, 2,callData);
-            delay(1000);
+            delay(pollingBetweenDevicesSpeed );
           }
         }
         callData = "endConnectionAndStartAgain";
@@ -712,7 +709,6 @@ void sendMqttData() {
   mqttSend("renogy/sensor/renogy_deviceaddressesnumber", String(deviceAddressesNumber));
 
   mqttSend("renogy/sensor/renogy_adress", deviceAddresses[deviceAddressesNumber]);
-  mqttSend("renogy/sensor/renogy_wifi_ssid", wifiSSIDValue);
 }
 
 void sendMqttDataExternalTemp() {
