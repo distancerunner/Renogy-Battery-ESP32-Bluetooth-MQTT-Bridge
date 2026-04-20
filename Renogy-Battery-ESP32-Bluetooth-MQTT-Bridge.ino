@@ -52,7 +52,9 @@ String actualTimeStamp="00:00:00";
 
 bool enableMqttSending = false;
 int flexiblePollingSpeed = 500;
-int pollingBetweenDevicesSpeed = 2000;
+int reconnectionCounter = 0;
+int reconnectionCounterMax = 30;
+int pollingBetweenDevicesSpeed = 1000;
 uint8_t watchdogSuccessCounter = 0;
 
 static uint32_t timerTickerDisplay = millis();
@@ -422,6 +424,7 @@ void setupDeviceAndConnect() {
   L_PRINTLN("-setupDeviceAndConnect-----------------");
   doBatteryCall = false;
   readExternalTemperatureSensors();
+  reconnectionCounter=0;
  
   size_t ramVor = ESP.getFreeHeap();
   L_PRINT("Heap setupDeviceAndConnect: "); L_PRINTLN(ESP.getFreeHeap());  
@@ -521,6 +524,7 @@ void loop() {
           }
         }
         callData = "getCellVolts";
+        
       }
       else if (callData == "getCellVolts") {
           if (checkWiFiConnection()) {
@@ -538,33 +542,44 @@ void loop() {
             delay(pollingBetweenDevicesSpeed );
           }
         }
+
         callData = "endConnectionAndStartAgain";
       }
       else if (callData == "endConnectionAndStartAgain") {
-        
-        for(int i = 0; i < DEVICEAMOUNT; i++) {
-        // Prüfen, ob der Client-Zeiger existiert (nicht NULL ist)
-          if (myDevices[i].pClient != nullptr) {
-          // Nur disconnecten, wenn er auch wirklich verbunden ist
-            if (myDevices[i].pClient != nullptr && myDevices[i].pClient->isConnected()) 
-            {
-              String macAddr = myDevices[i].pClient->getPeerAddress().toString().c_str();
-              // 1. Verbindung sauber trennen
-              myDevices[i].pClient->disconnect();
-              // 2. Den Client komplett aus dem Speicher löschen
-              NimBLEDevice::deleteClient(myDevices[i].pClient);
-              // 3. Den Zeiger auf NULL setzen, damit keine Geister-Zugriffe passieren
-              myDevices[i].pClient = nullptr;
-              myDevices[i].connected = false;
-              L_PRINTF("Device %d [%s] erfolgreich getrennt und Speicher freigegeben.\n", i, macAddr.c_str());
-            }
-            myDevices[i].connected = false; // Status-Flag zurücksetzen
-          }
-        }
-        checkDataConnection();
-        doBatteryCall = false;
         enableMqttSending = true;
-        setupDeviceAndConnect();
+        reconnectionCounter++;
+
+        if(reconnectionCounter<=reconnectionCounterMax) {
+          readExternalTemperatureSensors();
+          checkDataConnection();
+          delay(pollingBetweenDevicesSpeed );
+          callData = "getLevels";
+        } else {
+          for(int i = 0; i < DEVICEAMOUNT; i++) {
+          // Prüfen, ob der Client-Zeiger existiert (nicht NULL ist)
+            if (myDevices[i].pClient != nullptr) {
+            // Nur disconnecten, wenn er auch wirklich verbunden ist
+              if (myDevices[i].pClient != nullptr && myDevices[i].pClient->isConnected()) 
+              {
+                String macAddr = myDevices[i].pClient->getPeerAddress().toString().c_str();
+                // 1. Verbindung sauber trennen
+                myDevices[i].pClient->disconnect();
+                // 2. Den Client komplett aus dem Speicher löschen
+                NimBLEDevice::deleteClient(myDevices[i].pClient);
+                // 3. Den Zeiger auf NULL setzen, damit keine Geister-Zugriffe passieren
+                myDevices[i].pClient = nullptr;
+                myDevices[i].connected = false;
+                L_PRINTF("Device %d [%s] erfolgreich getrennt und Speicher freigegeben.\n", i, macAddr.c_str());
+              }
+              myDevices[i].connected = false; // Status-Flag zurücksetzen
+            }
+          }
+          
+          doBatteryCall = false;
+          delay(pollingBetweenDevicesSpeed );
+          setupDeviceAndConnect();
+        }
+        L_PRINTF("endConnectionAndStartAgain - reconnectionCounter: %d von %d \n", reconnectionCounter, reconnectionCounterMax);
       }
 
       timerTicker2 = millis();
@@ -622,6 +637,7 @@ boolean checkWiFiConnection() {
 
 void getExternalTemperatureSensors() {
   L_PRINTLN("-getExternalTemperatureSensors-----------------");
+  actualTimeStamp = getClockTime();
 
   temperaturArray = getTemperatureValues();
   bool dontSend = false;
